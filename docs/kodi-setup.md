@@ -62,7 +62,7 @@ binding has not been tested hands-on yet.
 `docs/kodi/introspect-21.3.json`; ⚠️ unverified: they have not been run against the real Kodi.
 
 "Start screensaver" calls `GUI.ActivateScreenSaver` (no params), which starts whichever screensaver
-Kodi has selected. It was run against the real Kodi 21.3 during the kodi-idle-dashboard spike.
+Kodi has selected. It has been run against the real Kodi 21.3.
 
 "Restart Kodi" needs a small host-side watcher (ADR-0008). Without it the button answers
 "Restart requested" and nothing happens.

@@ -91,6 +91,9 @@ Scenario B (Share / pasted link) differs only at the start:
 
 ## 3. A movie from the catalog → Kodi
 
+⚠️ Partly planned. Today sources come from AIOStreams and play through the loopback relay
+([security.md](security.md)); the separate TorBox provider branch is not built yet.
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -106,12 +109,12 @@ sequenceDiagram
   W->>B: GET /api/catalog/search?q=Dune
   B->>M: search → Title[] (imdb:tt…)
   U->>W: open the title → "Sources"
-  W->>B: GET /api/titles/tt…/sources
+  W->>B: GET /api/titles/movie/tt…/streams
   B->>S: /api/v1/search?type=movie&id=tt…
   S-->>B: results → classified into StreamSource[]
   B-->>W: sources (no temporary URLs, no secrets)
   U->>W: pick a source
-  W->>B: POST /api/playback {sourceId}
+  W->>B: POST /api/playback/stream {optionId}
   alt kind = direct_url
     B->>B: URL check (SSRF rules)
   else kind = provider_ref / torrent
@@ -125,6 +128,8 @@ sequenceDiagram
 ```
 
 ## 4. Refreshing a temporary TorBox link
+
+⚠️ Planned design; the TorBox client and this retry are not built yet.
 
 ```mermaid
 sequenceDiagram
@@ -189,6 +194,4 @@ flowchart TB
   PH x--x K9090
 ```
 
-The port table with exact values goes into `docs/networking.md` once ports are chosen in
-Stage 1 (`API_PORT` and the `yt-cast-receiver` DIAL port — ⚠️ find its default and make it
-configurable).
+The port table with exact values is in [networking.md](networking.md).

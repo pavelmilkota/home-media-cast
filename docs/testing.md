@@ -17,9 +17,10 @@ pnpm verify    # eslint + prettier, build, tsc, Vitest (api and web)
   use it for anything that navigates, and `renderWithClient` for router-free components.
 - Key tests were mutation-checked (break the code, see the test fail), e.g. revocation,
   attempt limit, status publishing, failed-start detection, send-on-release sliders.
-- CI is not set up; where it runs is an open decision.
+- CI (GitHub Actions, `.github/workflows/ci.yml`) runs `pnpm verify` and a Docker build on every
+  pull request and on pushes to `main`; CodeQL and dependency review run alongside it.
 
-## Source list cache (change `streams-cache`)
+## Source list cache
 
 - ✅ automated: store (round trip, retention, row cap, corrupt row, migration from 0001), service
   with an injected clock (debounce, forced refresh, in-flight sharing, failed update keeps the
@@ -31,14 +32,15 @@ pnpm verify    # eslint + prettier, build, tsc, Vitest (api and web)
   the phone (instant list, update lands without breaking taps, tapping during an update plays),
   and Settings → Clear cache followed by one slow open.
 
-## Acceptance criteria, Stage 1 (status on 2026-10-19, Dell Precision 7510, Kodi 21.3)
+## Acceptance checks: core remote (status on 2026-10-19)
 
-"Real Kodi" means the Flatpak Kodi on the Dell, not the fake.
+The test machine is a Dell Precision 7510 with Kodi 21.3. "Real Kodi" means the Flatpak Kodi
+on that machine, not the fake.
 
 | # | Feature | Status |
 |---|---|---|
 | 1 | Backend health | ✅ automated; real Kodi; container |
-| 2 | PWA from phone/tablet | ⚠️ partly: Chrome on the Dell ✅ (pairing, remote, play); **Android ✅ reported by the owner: reachable and paired** (which controls were tried is not recorded); iPhone and tablet **unverified** |
+| 2 | PWA from phone/tablet | ⚠️ partly: Chrome on the test machine ✅ (pairing, remote, play); **Android ✅ reported by the maintainer: reachable and paired** (which controls were tried is not recorded); iPhone and tablet **unverified** |
 | 3 | Kodi unavailable | ✅ with the fake (503, backend alive, `/health` degraded); real Kodi restart verified for `/health` (ok → reconnecting → unreachable → ok); ⚠️ "press play with Kodi stopped" not run on real Kodi |
 | 4 | Direct link | ✅ real Kodi, via API and via the PWA in Chrome |
 | 5 | Remote | ✅ real Kodi: pause, resume, seek, stop, volume; live state over SSE in Chrome without polling |
@@ -46,13 +48,13 @@ pnpm verify    # eslint + prettier, build, tsc, Vitest (api and web)
 | 7 | No token | ✅ automated, every route; Kodi receives nothing |
 | 8 | SSRF, pasted URL | ✅ automated (the four listed inputs plus ~40 more); ⚠️ redirects and DNS rebinding not closed; ⚠️ not repeated against real Kodi |
 | 9 | Audio/subtitles | ⚠️ API and UI against the fake only; real multi-track file **unverified** |
-| 29 | Code quality | ✅ `pnpm verify` green locally; CI platform open |
+| 10 | Code quality | ✅ `pnpm verify` green locally and in CI |
 
-## Not tested yet (Stage 1)
+## Not tested yet
 
-- iPhone and tablet (Android: paired and reachable, per the owner; a full control run is not recorded).
+- iPhone and tablet (Android: paired and reachable, per the maintainer; a full control run is not recorded).
 - Audio and subtitle switching on a real multi-track file.
 - ufw rules (need sudo; see [networking.md](networking.md)).
-- 4K HEVC 10-bit CPU load on the Dell (for information only, not pass/fail), and which GPU
+- 4K HEVC 10-bit CPU load on the test machine (for information only, not pass/fail), and which GPU
   drives HDMI plus the projector's modes (needs the projector connected).
-- Autostart and power-loss recovery (Stage 5).
+- Autostart and power-loss recovery (not built yet).
