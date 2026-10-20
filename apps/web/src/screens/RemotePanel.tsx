@@ -6,6 +6,7 @@ import { api } from '../api/client.js';
 import { formatTime } from '../format.js';
 import { useLive } from '../state/live.js';
 import { CommitSlider } from './CommitSlider.js';
+import { PauseIcon, PlayIcon, StopIcon } from './icons.js';
 import { PickSelect } from './PickSelect.js';
 import { sheet } from './ui.js';
 import { QueueCard } from './QueueCard.js';
@@ -77,57 +78,78 @@ export function RemotePanel() {
           <span>{formatTime(status.durationMs)}</span>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           {SKIPS.slice(0, 2).map((s) => (
-            <Button key={s} variant="secondary" onPress={() => send('/seek', { offsetSeconds: s })}>
+            <Button
+              key={s}
+              variant="secondary"
+              className="min-w-0 flex-1 px-2"
+              onPress={() => send('/seek', { offsetSeconds: s })}
+            >
               {t('remote.seconds', { value: s })}
             </Button>
           ))}
-          <Button variant="primary" size="lg" onPress={() => send(paused ? '/resume' : '/pause')}>
+          <Button
+            variant="primary"
+            size="lg"
+            className="min-w-24 flex-none px-6"
+            onPress={() => send(paused ? '/resume' : '/pause')}
+          >
+            {paused ? <PlayIcon /> : <PauseIcon />}
             {paused ? t('common.play') : t('common.pause')}
           </Button>
           {SKIPS.slice(2).map((s) => (
-            <Button key={s} variant="secondary" onPress={() => send('/seek', { offsetSeconds: s })}>
+            <Button
+              key={s}
+              variant="secondary"
+              className="min-w-0 flex-1 px-2"
+              onPress={() => send('/seek', { offsetSeconds: s })}
+            >
               {t('remote.seconds', { value: `+${s}` })}
             </Button>
           ))}
         </div>
-        {(around.data?.previous || around.data?.next) && (
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t('remote.episodes')}>
-            <Button
-              variant="secondary"
-              isDisabled={!around.data.previous || go.isPending}
-              aria-label={
-                around.data.previous
-                  ? t('remote.previousEpisodeNamed', { label: around.data.previous.label })
-                  : t('remote.previousEpisode')
-              }
-              onPress={() => go.mutate('previous')}
-            >
-              {t('remote.previous')}
-            </Button>
-            <Button
-              variant="secondary"
-              isDisabled={!around.data.next || go.isPending}
-              aria-label={
-                around.data.next
-                  ? t('remote.nextEpisodeNamed', { label: around.data.next.label })
-                  : t('remote.nextEpisode')
-              }
-              onPress={() => go.mutate('next')}
-            >
-              {t('remote.next')}
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center justify-center gap-2">
+          <Button
+            variant="secondary"
+            className="min-w-0 flex-1 px-2"
+            isDisabled={!around.data?.previous || go.isPending}
+            aria-label={
+              around.data?.previous
+                ? t('remote.previousEpisodeNamed', { label: around.data.previous.label })
+                : t('remote.previousEpisode')
+            }
+            onPress={() => go.mutate('previous')}
+          >
+            {t('remote.previous')}
+          </Button>
+          <Button
+            variant="danger-soft"
+            className="min-w-0 flex-1 px-2"
+            onPress={() => send('/stop')}
+          >
+            <StopIcon />
+            {t('common.stop')}
+          </Button>
+          <Button
+            variant="secondary"
+            className="min-w-0 flex-1 px-2"
+            isDisabled={!around.data?.next || go.isPending}
+            aria-label={
+              around.data?.next
+                ? t('remote.nextEpisodeNamed', { label: around.data.next.label })
+                : t('remote.nextEpisode')
+            }
+            onPress={() => go.mutate('next')}
+          >
+            {t('remote.next')}
+          </Button>
+        </div>
         {go.isError && (
           <p role="alert" className="text-danger">
             {go.error.message}
           </p>
         )}
-        <Button variant="danger-soft" onPress={() => send('/stop')}>
-          {t('common.stop')}
-        </Button>
       </Card>
 
       <QueueCard />

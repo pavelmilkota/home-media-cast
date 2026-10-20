@@ -38,7 +38,7 @@ describe('TV controls (e2e)', () => {
 
   it('toggles fullscreen and opens the home window', async () => {
     expect((await post('/tv/fullscreen')).status).toBe(204);
-    expect(calls('GUI.SetFullscreen').at(-1)?.params).toEqual({ fullscreen: 'toggle' });
+    expect(calls('Input.ExecuteAction').at(-1)?.params).toEqual({ action: 'togglefullscreen' });
     expect((await post('/tv/home')).status).toBe(204);
     expect(calls('GUI.ActivateWindow').at(-1)?.params).toEqual({ window: 'home' });
   });

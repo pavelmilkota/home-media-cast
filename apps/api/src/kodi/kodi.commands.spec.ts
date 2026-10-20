@@ -164,9 +164,9 @@ describe('KodiCommands', () => {
   });
 
   describe('TV window commands', () => {
-    it('toggles fullscreen with the fixed toggle value', async () => {
+    it('toggles the window with the fixed togglefullscreen action', async () => {
       await commands.toggleFullscreen();
-      expect(lastCall('GUI.SetFullscreen')).toEqual({ fullscreen: 'toggle' });
+      expect(lastCall('Input.ExecuteAction')).toEqual({ action: 'togglefullscreen' });
     });
 
     it('opens the home window and nothing else', async () => {
