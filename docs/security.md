@@ -3,7 +3,9 @@
 Decisions are in [ADR-0002](adr/0002-kodi-control-plane.md) and
 [ADR-0007](adr/0007-security-and-network.md). This page states what is implemented.
 
-## Implemented and tested
+## Implemented
+
+Tested automatically; anything not yet tried by hand is marked ⚠️.
 
 - **Device pairing.** A 6-digit code is shown only on the projector (a Kodi notification).
   It is valid for 5 minutes, single use, and cancelled after 5 wrong guesses;
@@ -30,16 +32,6 @@ Decisions are in [ADR-0002](adr/0002-kodi-control-plane.md) and
   `no-new-privileges`, and only the variables the API reads (the TorBox key is not passed).
 - **Dependencies.** Build scripts of `@scarf/scarf` (telemetry), `@swc/core` and `esbuild`
   are denied in `pnpm-workspace.yaml`; their binaries come as platform packages.
-
-## Known gaps
-
-- ⚠️ **HTTP redirects and DNS rebinding.** Kodi resolves names and follows redirects itself,
-  so a public URL can lead it to a local address. Not closed (ADR-0007).
-- **HTTP only on the LAN.** The token travels in clear text on the home network until the
-  Stage 2 HTTPS spike.
-- **Anyone on the LAN can request a pairing code** (it pops up on the projector). Guessing is
-  bounded to about 5 tries per 10 s against a 1-in-a-million code.
-- ⚠️ Kodi's video database may keep played URLs (ADR-0005).
 - **Stream lists** (`GET /api/titles/:type/:id/streams`, `POST /api/playback/stream`, token
   required). The title id is validated (`tt…`, `tmdb:…`, series `:season:episode`) before it
   reaches AIOStreams, whose uuid and password travel only in an `Authorization` header. A list
@@ -48,7 +40,7 @@ Decisions are in [ADR-0002](adr/0002-kodi-control-plane.md) and
   download on the debrid account, so the PWA asks for a second tap before playing one. AIOStreams
   being down or refusing the credentials is a plain 503 "not available" for the phone; everything
   else keeps working.
-- **Loopback relay** (`/api/relay/:id`, Stage 3). A provider URL can carry a key (a TorBox
+- **Loopback relay** (`/api/relay/:id`). A provider URL can carry a key (a TorBox
   CDN link's `token` *is* the account key, verified), so Kodi is never given one: it opens
   `http://127.0.0.1:<port>/api/relay/<opaque id>` and the backend fetches the real URL. The
   route needs no bearer (Kodi cannot send one) and instead answers only connections from
@@ -61,6 +53,16 @@ Decisions are in [ADR-0002](adr/0002-kodi-control-plane.md) and
   `youtu.be`), no port, no credentials. The backend keeps just the 11-character video id and a
   start offset; the link itself never reaches Kodi, so it needs no SSRF check. `list=` is parsed
   and ignored. The same parser (`packages/shared/src/youtube.ts`) runs in the PWA and the API.
+
+## Known gaps
+
+- ⚠️ **HTTP redirects and DNS rebinding.** Kodi resolves names and follows redirects itself,
+  so a public URL can lead it to a local address. Not closed (ADR-0007).
+- **HTTP only on the LAN.** The token travels in clear text on the home network until HTTPS
+  is set up (planned, ADR-0007).
+- **Anyone on the LAN can request a pairing code** (it pops up on the projector). Guessing is
+  bounded to about 5 tries per 10 s against a 1-in-a-million code.
+- ⚠️ Kodi's video database may keep played URLs (ADR-0005).
 - **YouTube casting bypasses device tokens by design** (ADR-0007, accepted exception). Off by
   default (`YOUTUBE_CAST_ENABLED`); switch with `PUT /api/youtube/cast` (token required). What a
   sender can do is bounded in code: the player accepts only an 11-character video id (the
