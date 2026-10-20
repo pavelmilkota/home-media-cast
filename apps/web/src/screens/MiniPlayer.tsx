@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client.js';
 import { useLive } from '../state/live.js';
 import { useQueue } from '../state/queue.js';
+import { PauseIcon, PlayIcon } from './icons.js';
 
 /**
  * A bar above the tab bar while a video is active; tapping it opens the Remote sheet. With
@@ -72,6 +73,7 @@ export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
         isDisabled={toggle.isPending}
         onPress={() => toggle.mutate(paused ? '/resume' : '/pause')}
       >
+        {paused ? <PlayIcon /> : <PauseIcon />}
         {paused ? t('common.play') : t('common.pause')}
       </Button>
     </Card>

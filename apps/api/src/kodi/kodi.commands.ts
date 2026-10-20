@@ -138,9 +138,12 @@ export class KodiCommands {
     );
   }
 
-  /** Switches Kodi between windowed and full screen (the same as F11 on the TV's keyboard). */
+  /**
+   * Switches Kodi's window between windowed and full screen (the same as F11 on the TV's keyboard).
+   * Not `GUI.SetFullscreen`: that toggles the fullscreen video view, not the application window.
+   */
   async toggleFullscreen(): Promise<void> {
-    await this.client.request('GUI.SetFullscreen', { fullscreen: 'toggle' });
+    await this.client.request('Input.ExecuteAction', { action: 'togglefullscreen' });
   }
 
   /** Opens Kodi's home window, e.g. to leave a menu or a finished video behind. */

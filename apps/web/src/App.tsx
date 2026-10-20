@@ -1,4 +1,4 @@
-import { Tabs } from '@heroui/react';
+import { Tabs, Toast } from '@heroui/react';
 import { Outlet, useLocation, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -110,6 +110,7 @@ function Shell() {
           </Tabs.ListContainer>
         </Tabs>
       </div>
+      <Toast.Provider placement="top" />
       <RemoteSheet isOpen={sheet === 'remote'} onOpenChange={(o) => !o && closeSheet()} />
       <SettingsSheet isOpen={sheet === 'settings'} onOpenChange={(o) => !o && closeSheet()} />
     </div>

@@ -267,7 +267,8 @@ describe('remote', () => {
     await open();
     await screen.findByRole('heading', { name: 'Big Buck Bunny' });
     await waitFor(() => expect(backend.callsTo('GET /playback/episodes')).toHaveLength(1));
-    expect(screen.queryByRole('group', { name: 'Episodes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous episode' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next episode' })).toBeDisabled();
   });
 
   const choose = async (select: string, option: string) => {

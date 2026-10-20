@@ -1,8 +1,8 @@
-import { Button, Card, Chip, ProgressBar, Switch } from '@heroui/react';
+import { Button, Card, Chip, ProgressBar, Switch, toast } from '@heroui/react';
 import type { CatalogType, StreamOption, StreamsResponse } from '@home-media-cast/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, api } from '../api/client.js';
 import { ageLabel } from '../format.js';
@@ -116,6 +116,15 @@ export function SourcePicker({
       if (e instanceof ApiError && e.status === 410) void sources.refetch();
     },
   });
+
+  // Shown as a toast: the sources list is long, so an inline message would be off screen.
+  const playError = play.isError ? play.error.message : undefined;
+  useEffect(() => {
+    if (playError) toast.danger(playError, { timeout: 8000 });
+  }, [playError, play.submittedAt]);
+  useEffect(() => {
+    if (phase === 'failed') toast.danger(t('sources.failed'), { timeout: 8000 });
+  }, [phase, t]);
 
   const client = useQueryClient();
   const queued = useQueue().items.some((q) => q.type === type && q.videoId === videoId);
@@ -310,16 +319,6 @@ export function SourcePicker({
       {phase === 'starting' && (
         <p className="text-muted" role="status">
           {t('sources.waiting')}
-        </p>
-      )}
-      {phase === 'failed' && (
-        <p role="alert" className="text-danger">
-          {t('sources.failed')}
-        </p>
-      )}
-      {play.isError && (
-        <p role="alert" className="text-danger">
-          {play.error.message}
         </p>
       )}
     </Card>

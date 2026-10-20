@@ -1,4 +1,4 @@
-import { Button, ToggleButton } from '@heroui/react';
+import { Button } from '@heroui/react';
 import type { StreamOption } from '@home-media-cast/shared';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -96,14 +96,15 @@ export function SourceFilters({
               <span className="text-sm text-muted">{t(`sources.filters.${key}`)}</span>
               <div className="flex flex-wrap gap-1.5">
                 {choices[key].map((value) => (
-                  <ToggleButton
+                  <Button
                     key={value}
                     size="sm"
-                    isSelected={filters[key].includes(value)}
-                    onChange={() => toggle(key, value)}
+                    variant={filters[key].includes(value) ? 'primary' : 'secondary'}
+                    aria-pressed={filters[key].includes(value)}
+                    onPress={() => toggle(key, value)}
                   >
                     {value}
-                  </ToggleButton>
+                  </Button>
                 ))}
               </div>
             </div>
