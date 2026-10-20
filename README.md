@@ -19,6 +19,9 @@ Nothing leaves your home network except the requests to the services you choose 
 - **Stremio is a great catalog and source aggregator, but a poor TV box.** On a PC or a
   phone it is excellent. On a living-room screen you end up with a laptop and an HDMI cable, or
   a TV app that is not what you configured on your own server.
+- **Low-end sticks run out of memory.** A Chromecast HD, for example, has very little RAM and
+  freezes on high-resolution, high-bitrate or very large video files. A small PC running Kodi
+  has the memory and decoding headroom to play them.
 - **A Kodi box is the best player** (hardware decoding, HDR, every codec), but its remote and
   library UI are made for a keyboard or a couch remote, not for "find the film my friend
   mentioned" on a phone.
