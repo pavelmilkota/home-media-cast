@@ -48,6 +48,17 @@ describe('classifyResult', () => {
     expect(classifyResult(torrentio).cached).toBe(false);
   });
 
+  it('reads subtitles (plain or Stremio objects) and quality', () => {
+    expect(
+      classifyResult({
+        url: 'https://x/y',
+        subtitles: [{ lang: 'English' }, { lang: 'English' }, 'Polish', { id: 1 }],
+        parsedFile: { quality: 'BluRay' },
+      }),
+    ).toMatchObject({ subtitles: ['English', 'Polish'], quality: 'BluRay' });
+    expect(classifyResult({ url: 'https://x/y' })).not.toHaveProperty('subtitles');
+  });
+
   it('reads languages and resolution from the result or from parsedFile', () => {
     expect(
       classifyResult({

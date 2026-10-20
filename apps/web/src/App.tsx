@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { Sheet } from './router.js';
 import { useToken } from './api/auth.js';
 import { LiveProvider, useLive } from './state/live.js';
+import { useQueue } from './state/queue.js';
 import { ConnectionBar } from './screens/ConnectionBar.js';
 import { MiniPlayer } from './screens/MiniPlayer.js';
 import { PairingScreen } from './screens/PairingScreen.js';
@@ -42,7 +43,8 @@ function Shell() {
   const sheetPush = useLocation({ select: (l) => l.state.sheetPush === true });
   const { sheet } = useSearch({ strict: false });
   const status = useLive().status;
-  const playing = status?.active === true;
+  const queued = useQueue().items.length > 0;
+  const playing = status?.active === true || queued;
   const tab: Tab | '' =
     pathname === '/'
       ? 'home'

@@ -338,7 +338,7 @@ describe('resume', () => {
     await start('Library');
     await userEvent.click(await screen.findByRole('button', { name: /Matrix Show/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Continue: S1E2' }));
-    const box = await screen.findByRole('checkbox', { name: /Resume where I stopped \(40%\)/ });
+    const box = await screen.findByRole('switch', { name: /Resume where I stopped \(40%\)/ });
     expect(box).toBeChecked();
     await userEvent.click(box);
     await userEvent.click(await screen.findByRole('button', { name: /Cat\.mkv/ }));
