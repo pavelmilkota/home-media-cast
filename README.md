@@ -91,16 +91,6 @@ advice see [docs/hardware.md](docs/hardware.md); for Home Assistant see
 | AIOStreams sources and relay | built and tested with a real Kodi and *fake* providers; ⚠️ real AIOStreams and TorBox only tried in throwaway prototypes |
 | Retry with a fresh debrid link (TorBox client) | not built |
 
-## Seed the library from Stremio (optional)
-
-`scripts/seed-library.mjs` imports your Stremio web library and watch history into the
-database. Put your export at `seed/stremio-library.json` (git-ignored); the shape is in
-`seed/stremio-library.example.json`.
-
-```bash
-node scripts/seed-library.mjs   # --db / --seed override the defaults; safe to re-run
-```
-
 ## Develop
 
 ```bash
