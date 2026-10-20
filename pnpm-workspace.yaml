@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  '@scarf/scarf': false
+  '@swc/core': false
+  esbuild: false
+minimumReleaseAgeExclude:
+  - i18next@26.5.3

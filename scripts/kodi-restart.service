@@ -1,0 +1,7 @@
+# Restarts the Flatpak Kodi once (docs/kodi-setup.md). Started by kodi-restart.path.
+[Unit]
+Description=Restart the Flatpak Kodi
+
+[Service]
+Type=oneshot
+ExecStart=%h/Projects/home-media-cast/scripts/kodi-restart.sh

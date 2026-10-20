@@ -1,0 +1,48 @@
+# Stage 1: one container on the host network, next to Kodi.
+# `network_mode: host` lets the API reach Kodi's JSON-RPC on 127.0.0.1:9090, which stays
+# bound to loopback and is never published. Restrict who can reach the API port with ufw
+# (docs/networking.md); host networking means Docker's own port publishing is not involved.
+services:
+  api:
+    image: home-media-cast:stage1
+    build: .
+    network_mode: host
+    restart: unless-stopped
+    # Only what the API reads. Not `env_file`: that would also hand it secrets (TorBox key)
+    # it does not use yet.
+    environment:
+      PORT: ${PORT:-8787}
+      KODI_WS_URL: ${KODI_WS_URL:-ws://127.0.0.1:9090/jsonrpc}
+      PLAYBACK_ALLOW_HOSTS: ${PLAYBACK_ALLOW_HOSTS:-}
+      AIOSTREAMS_URL: ${AIOSTREAMS_URL:-}
+      AIOSTREAMS_UUID: ${AIOSTREAMS_UUID:-}
+      AIOSTREAMS_PASSWORD: ${AIOSTREAMS_PASSWORD:-}
+      YOUTUBE_CAST_ENABLED: ${YOUTUBE_CAST_ENABLED:-false}
+      YOUTUBE_DIAL_PORT: ${YOUTUBE_DIAL_PORT:-3100}
+      YOUTUBE_DEVICE_NAME: ${YOUTUBE_DEVICE_NAME:-homeMediaCast}
+      KODI_RESTART_TRIGGER: /restart/kodi-restart
+    volumes:
+      - data:/data
+      # Only for the "Restart Kodi" button: an empty file appears here and a host unit reacts to
+      # it (docs/kodi-setup.md). The directory must exist and be writable by uid 1000.
+      - ${KODI_RESTART_DIR:-./restart}:/restart
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  data:

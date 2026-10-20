@@ -1,0 +1,32 @@
+{
+  "source": "example (same shape as an export of the Stremio web library)",
+  "exportedAt": "2026-01-01",
+  "items": [
+    {
+      "id": "tt0133093",
+      "type": "movie",
+      "name": "The Matrix",
+      "inLibrary": true,
+      "addedAt": "2026-01-01T10:00:00Z",
+      "lastWatched": "2026-01-02T20:00:00Z",
+      "videoId": "tt0133093",
+      "positionMs": 3600000,
+      "durationMs": 8160000,
+      "timesWatched": 1,
+      "flaggedWatched": false
+    },
+    {
+      "id": "tt0903747",
+      "type": "series",
+      "name": "Breaking Bad",
+      "inLibrary": true,
+      "addedAt": "2026-01-01T10:00:00Z",
+      "lastWatched": "2026-01-03T21:00:00Z",
+      "videoId": "tt0903747:1:2",
+      "positionMs": 600000,
+      "durationMs": 2900000,
+      "timesWatched": 1,
+      "flaggedWatched": false
+    }
+  ]
+}
