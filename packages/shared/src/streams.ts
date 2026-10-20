@@ -26,6 +26,8 @@ export interface StreamOption {
   /** False for kinds we cannot play; `reason` says why. */
   playable: boolean;
   reason?: string;
+  /** The source played last for this title or episode; listed first. At most one option. */
+  lastUsed?: true;
 }
 
 export type TitleType = 'movie' | 'series';

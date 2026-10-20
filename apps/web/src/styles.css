@@ -145,6 +145,22 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  min-height: 100dvh;
+  min-height: 100svh;
   -webkit-text-size-adjust: 100%;
+}
+
+/*
+ * Overlays use `svh` (the viewport with the browser toolbars showing), not `vh`, so the bottom
+ * sheet and the dropdown lists stay clear of a bottom toolbar (Brave on Android).
+ */
+.drawer__backdrop,
+.drawer__content {
+  height: 100svh !important;
+}
+.drawer__dialog[data-placement='bottom'] {
+  max-height: 85svh;
+  padding-bottom: calc(var(--spacing) * 6 + env(safe-area-inset-bottom));
+}
+.select__popover {
+  max-height: min(20rem, 45svh);
 }

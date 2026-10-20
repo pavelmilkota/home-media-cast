@@ -3,6 +3,7 @@ import { WATCHED_AT } from './library.service.js';
 import type { PlayerStatus } from '@home-media-cast/shared';
 import type { Subscription } from 'rxjs';
 import type { PlayerStatusService } from '../player/player-status.service.js';
+import type { TrackPreferences } from '../player/track-preferences.service.js';
 import type { LibraryService, ProgressInput } from './library.service.js';
 
 export type TrackedItem = Omit<ProgressInput, 'positionMs' | 'durationMs'>;
@@ -39,6 +40,7 @@ export class WatchTracker implements OnModuleDestroy {
     private readonly library: LibraryService,
     private readonly seek: (positionMs: number) => Promise<void> = async () => undefined,
     { saveEveryMs = 5000, startTimeoutMs = 90_000, seekRetryMs = 1500 }: WatchTrackerOptions = {},
+    private readonly tracks?: TrackPreferences,
   ) {
     this.seekRetryMs = seekRetryMs;
     this.saveEveryMs = saveEveryMs;
@@ -70,8 +72,11 @@ export class WatchTracker implements OnModuleDestroy {
   ): void {
     this.end();
     this.last = { item, ...(bingeGroup ? { bingeGroup } : {}) };
+    // Remembered at once: a play stopped within seconds still counts as the last selected source.
+    if (bingeGroup) this.library.rememberRelease(item.videoId, bingeGroup);
     let tracking: Active | undefined;
     let lastSaved = 0;
+    let applyTracks: ((s: Active) => void) | undefined;
     let sawOther = !before?.active;
     const save = (s: Active) =>
       this.library.record({ ...item, positionMs: s.positionMs, durationMs: s.durationMs });
@@ -97,8 +102,10 @@ export class WatchTracker implements OnModuleDestroy {
               s.positionMs < (before as Active).positionMs - 2000;
             if (!isNew) return;
             if (resumeMs) this.resume(resumeMs);
+            applyTracks = this.tracks?.forPlayback();
           }
           tracking = s;
+          applyTracks?.(s);
           if (Date.now() - lastSaved >= this.saveEveryMs || s.speed === 0) {
             lastSaved = Date.now();
             save(s);

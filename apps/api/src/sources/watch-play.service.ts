@@ -95,6 +95,11 @@ export class WatchPlayService {
     }
   }
 
+  /** The release last played for this video, so the list can flag it. */
+  lastReleaseOf(videoId: string): string | undefined {
+    return this.catalog.lastReleaseOf(videoId);
+  }
+
   /** The aired episodes around the last one played from the catalog. */
   async neighbors(): Promise<AdjacentEpisodes> {
     const last = this.tracker.lastPlay();

@@ -21,6 +21,9 @@ import {
   type ClassifiedResult,
 } from './stream-source.js';
 
+/** A source link is tried this many times before the phone is told it does not work. */
+const LINK_ATTEMPTS = 2;
+
 /** The option id is unknown, or older than the time limit. The list must be fetched again. */
 export class OptionExpiredError extends Error {
   override readonly name = 'OptionExpiredError';
@@ -123,7 +126,7 @@ export class StreamsService {
   async list(
     type: TitleType,
     id: string,
-    { refresh = false }: { refresh?: boolean } = {},
+    { refresh = false, lastRelease }: { refresh?: boolean; lastRelease?: string } = {},
   ): Promise<StreamsResponse> {
     if (!this.aio) throw new SourceNotConfiguredError('AIOStreams is not configured');
     if (!isValidTitleId(type, id)) throw new RangeError('Not a valid title id');
@@ -135,7 +138,7 @@ export class StreamsService {
     }
     if (!served) {
       // Cold: wait for the search (joining one already running).
-      return this.respond(key, await this.refreshNow(type, id, key));
+      return this.respond(key, await this.refreshNow(type, id, key), lastRelease);
     }
     if (
       !this.inflight.has(key) &&
@@ -146,18 +149,41 @@ export class StreamsService {
     if (this.now() - served.mintedAt >= this.remintAfterMs) {
       served = this.serve(key, served.classified, served);
     }
-    return this.respond(key, served);
+    return this.respond(key, served, lastRelease);
   }
 
-  private respond(key: string, served: Served): StreamsResponse {
+  private respond(key: string, served: Served, lastRelease?: string): StreamsResponse {
     const refreshError = this.refreshErrors.get(key);
     return {
-      options: served.options,
+      options: this.flagLast(served.options, lastRelease),
       sourceErrors: served.errors,
       fetchedAt: served.fetchedAt,
       refreshing: this.inflight.has(key),
       ...(refreshError ? { refreshError } : {}),
     };
+  }
+
+  /**
+   * Puts the source played last for this video first and flags it (same torrent, else the same
+   * release). Applied to the response only: the served and cached lists are not changed.
+   */
+  private flagLast(options: StreamOption[], lastRelease: string | undefined): StreamOption[] {
+    if (!lastRelease) return options;
+    let best: { index: number; score: number } | undefined;
+    options.forEach((o, index) => {
+      const classified = this.stored.get(o.id)?.classified;
+      if (!o.playable || !classified) return;
+      let score: number;
+      try {
+        score = releaseMatch(lastRelease, classified);
+      } catch {
+        return; // an unreadable stored key flags nothing
+      }
+      if (score > (best?.score ?? 0)) best = { index, score };
+    });
+    if (!best) return options;
+    const hit = best.index;
+    return [{ ...options[hit]!, lastUsed: true }, ...options.filter((_, i) => i !== hit)];
   }
 
   /** One search per key at a time; the answer is stored, then swapped in as the served list. */
@@ -281,18 +307,25 @@ export class StreamsService {
     if (source.kind !== 'direct_url') {
       throw new NotPlayableError(toOption(optionId, entry.classified).reason ?? 'Cannot be played');
     }
-    const { id, url } = await this.relay.register({
-      url: source.url,
-      ...(Object.keys(source.headers).length ? { headers: source.headers } : {}),
-      name: title,
-    });
-    try {
-      await this.relay.preflight(id);
-    } catch (e) {
-      this.relay.forget(id);
-      if (e instanceof RelayLinkError) throw new StreamLinkError(e.reason, e.message);
-      throw e;
+    // A link that is dead or expired is asked for again once: the relay follows the provider's
+    // redirect chain from the start, so a second registration resolves a fresh link.
+    let linked: { id: string; url: string } | undefined;
+    for (let attempt = 1; !linked; attempt++) {
+      const registered = await this.relay.register({
+        url: source.url,
+        ...(Object.keys(source.headers).length ? { headers: source.headers } : {}),
+        name: title,
+      });
+      try {
+        await this.relay.preflight(registered.id);
+        linked = registered;
+      } catch (e) {
+        this.relay.forget(registered.id);
+        if (!(e instanceof RelayLinkError)) throw e;
+        if (attempt >= LINK_ATTEMPTS) throw new StreamLinkError(e.reason, e.message);
+      }
     }
+    const { url } = linked;
     await this.kodi.commands.open(url, { resume });
   }
 

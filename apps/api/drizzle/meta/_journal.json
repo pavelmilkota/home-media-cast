@@ -22,6 +22,27 @@
       "when": 1792495772481,
       "tag": "0002_streams_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792516749054,
+      "tag": "0003_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792520967996,
+      "tag": "0004_progress_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792521942790,
+      "tag": "0005_last_source",
+      "breakpoints": true
     }
   ]
 }

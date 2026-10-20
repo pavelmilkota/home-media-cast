@@ -12,6 +12,7 @@ import { MiniPlayer } from './screens/MiniPlayer.js';
 import { PairingScreen } from './screens/PairingScreen.js';
 import { RemoteSheet } from './screens/RemoteSheet.js';
 import { SettingsSheet } from './screens/SettingsSheet.js';
+import { trackEmbeddedBottomInset } from './state/embedded-inset.js';
 
 type Tab = 'home' | 'search' | 'library';
 const icon = (d: string) => (
@@ -67,6 +68,8 @@ function Shell() {
       void navigate({ to: '.', search: (prev) => ({ ...prev, sheet: undefined }), replace: true });
   };
 
+  useEffect(() => trackEmbeddedBottomInset(), []);
+
   // A Remote link with nothing playing (reload, stale link, playback ended) drops the sheet
   // in place, so Back never reopens a dead sheet.
   useEffect(() => {
@@ -77,11 +80,13 @@ function Shell() {
 
   return (
     <div
-      className={`flex min-h-dvh flex-col ${playing ? 'pb-[calc(156px+env(safe-area-inset-bottom))]' : 'pb-[calc(84px+env(safe-area-inset-bottom))]'}`}
+      className={`flex min-h-svh flex-col ${playing ? 'pb-[calc(156px+env(safe-area-inset-bottom))]' : 'pb-[calc(84px+env(safe-area-inset-bottom))]'}`}
     >
       <ConnectionBar onOpenSettings={() => openSheet('settings')} />
       <Outlet />
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 flex flex-col items-center gap-2 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] *:pointer-events-auto">
+      {/* Anchored to the small viewport (`svh`), not `bottom-0`: Android browsers with a bottom toolbar
+          (Brave) otherwise draw it over the bar. */}
+      <div className="pointer-events-none fixed inset-x-0 top-0 flex h-svh flex-col items-center justify-end gap-2 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom)+var(--embed-bottom-inset,0px))] *:pointer-events-auto">
         <MiniPlayer onOpen={() => openSheet('remote')} />
         <Tabs
           className="w-full max-w-105"

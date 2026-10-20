@@ -214,6 +214,8 @@ export const pl: Messages = {
     cached: 'w pamięci podręcznej',
     notCached: 'poza pamięcią podręczną',
     playOnTv: '▶ Odtwórz na TV',
+    lastSelected: 'Ostatnio wybrane',
+    tryNext: 'Spróbuj następnego źródła',
     notCachedWarning:
       'Brak w pamięci podręcznej: może to rozpocząć pobieranie na Twoim koncie. Dotknij ponownie, aby odtworzyć.',
     addToQueue: 'Dodaj źródło {{n}} do kolejki',

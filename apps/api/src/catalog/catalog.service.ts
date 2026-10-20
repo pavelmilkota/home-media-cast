@@ -166,6 +166,11 @@ export class CatalogService {
     return this.library.resumePoint(videoId);
   }
 
+  /** The release last played for a movie or an episode (host only; never sent to the phone). */
+  lastReleaseOf(videoId: string): string | undefined {
+    return this.library.lastReleaseOf(videoId);
+  }
+
   /** The aired episodes right before and after `videoId`, in season order (specials skipped). */
   async neighbors(videoId: string): Promise<AdjacentEpisodes> {
     const parsed = parseVideoId(videoId);

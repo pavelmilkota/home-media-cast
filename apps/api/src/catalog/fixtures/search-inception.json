@@ -1,0 +1,120 @@
+{
+  "query": "inception",
+  "rank": 7.5,
+  "cacheMaxAge": 86400,
+  "metas": [
+    {
+      "id": "tt1375666",
+      "imdb_id": "tt1375666",
+      "type": "movie",
+      "name": "Inception",
+      "poster": "https://m.media-amazon.com/images/M/MV5BMjAxMzY3NjcxNF5BMl5BanBnXkFtZTcwNTI5OTM0Mw@@._V1_SX250.jpg",
+      "background": "https://images.metahub.space/background/medium/tt1375666/img",
+      "releaseInfo": "2010",
+      "links": [],
+      "behaviorHints": {
+        "defaultVideoId": "tt1375666",
+        "hasScheduledVideos": false
+      }
+    },
+    {
+      "imdb_id": "tt8269586",
+      "cast": ["Michael Madsen", "Ana Flavia Gavlak", "Alena Savostikova"],
+      "description": "Two Arctic Lab janitors perform unauthorized experiments transporting them to Malibu California with beautiful girls and a Brazilian PhD Student.",
+      "director": ["John Sjogren"],
+      "genre": ["Comedy"],
+      "imdbRating": "4.4",
+      "name": "Bikini Inception",
+      "poster": "https://images.metahub.space/poster/small/tt8269586/img",
+      "released": "2017-01-01T00:00:00.000Z",
+      "runtime": "106 min",
+      "slug": "movie/bikini-inception-8269586",
+      "type": "movie",
+      "writer": ["John Sjogren"],
+      "year": "2017",
+      "popularities": {
+        "moviedb": 1.7133,
+        "stremio": 0.05711,
+        "stremio_lib": 0
+      },
+      "trailers": [
+        {
+          "source": "cxnpvxRpPxE",
+          "type": "Trailer"
+        }
+      ],
+      "background": "https://images.metahub.space/background/medium/tt8269586/img",
+      "logo": "https://images.metahub.space/logo/medium/tt8269586/img",
+      "popularity": 0.05711,
+      "id": "tt8269586",
+      "score": 5,
+      "genres": ["Comedy"],
+      "releaseInfo": "2017",
+      "trailerStreams": [
+        {
+          "title": "Bikini Inception",
+          "ytId": "cxnpvxRpPxE"
+        }
+      ],
+      "links": [
+        {
+          "name": "4.4",
+          "category": "imdb",
+          "url": "https://imdb.com/title/tt8269586"
+        },
+        {
+          "name": "Bikini Inception",
+          "category": "share",
+          "url": "https://www.strem.io/s/movie/bikini-inception-8269586"
+        },
+        {
+          "name": "Comedy",
+          "category": "Genres",
+          "url": "stremio:///discover/https%3A%2F%2Fv3-cinemeta.strem.io%2Fmanifest.json/movie/top?genre=Comedy"
+        },
+        {
+          "name": "Michael Madsen",
+          "category": "Cast",
+          "url": "stremio:///search?search=Michael%20Madsen"
+        },
+        {
+          "name": "Ana Flavia Gavlak",
+          "category": "Cast",
+          "url": "stremio:///search?search=Ana%20Flavia%20Gavlak"
+        },
+        {
+          "name": "Alena Savostikova",
+          "category": "Cast",
+          "url": "stremio:///search?search=Alena%20Savostikova"
+        },
+        {
+          "name": "John Sjogren",
+          "category": "Writers",
+          "url": "stremio:///search?search=John%20Sjogren"
+        },
+        {
+          "name": "John Sjogren",
+          "category": "Directors",
+          "url": "stremio:///search?search=John%20Sjogren"
+        }
+      ],
+      "behaviorHints": {
+        "defaultVideoId": "tt8269586",
+        "hasScheduledVideos": false
+      }
+    },
+    {
+      "id": "tt5581256",
+      "imdb_id": "tt5581256",
+      "type": "movie",
+      "name": "Inception",
+      "poster": "https://images.metahub.space/poster/small/tt5581256/img",
+      "background": "https://images.metahub.space/background/medium/tt5581256/img",
+      "links": [],
+      "behaviorHints": {
+        "defaultVideoId": "tt5581256",
+        "hasScheduledVideos": false
+      }
+    }
+  ]
+}

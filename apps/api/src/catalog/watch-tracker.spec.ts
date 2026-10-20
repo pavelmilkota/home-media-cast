@@ -74,6 +74,29 @@ describe('WatchTracker', () => {
     expect(row()).toMatchObject({ positionMs: 70_000, watched: false, label: 'Cat' });
   });
 
+  it('remembers the release at once, even when the play is stopped in seconds, and never exposes it', () => {
+    const KEY = '{"g":"grp","r":"1080p","l":[],"h":"abc123hash"}';
+    tracker.begin(ITEM, undefined, undefined, KEY);
+    expect(library.lastReleaseOf(ITEM.videoId)).toBe(KEY);
+    emit(playing('a.mkv', 5_000));
+    emit(idle);
+    expect(row()).toBeUndefined(); // too short for progress...
+    expect(library.lastReleaseOf(ITEM.videoId)).toBe(KEY); // ...but the source is remembered
+
+    // A later play that does not know its release (a pasted link) leaves the old one.
+    tracker.begin(ITEM, undefined);
+    expect(library.lastReleaseOf(ITEM.videoId)).toBe(KEY);
+    // A newer release replaces it; a manual watched toggle keeps it.
+    tracker.begin(ITEM, undefined, undefined, '{"r":"720p","l":[],"h":"zzz"}');
+    library.setWatched(ITEM, true);
+    expect(library.lastReleaseOf(ITEM.videoId)).toBe('{"r":"720p","l":[],"h":"zzz"}');
+    expect(JSON.stringify(library.overview())).not.toMatch(/abc123hash|zzz/);
+  });
+
+  it('has no release for a video that was never played from a source', () => {
+    expect(library.lastReleaseOf('tt0000001')).toBeUndefined();
+  });
+
   it('ignores a video that was already on screen, then follows the new one', () => {
     const before = playing('old.mkv', 3_000_000);
     tracker.begin(ITEM, before);

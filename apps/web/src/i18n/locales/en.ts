@@ -210,6 +210,8 @@ export const en = {
     cached: 'cached',
     notCached: 'not cached',
     playOnTv: '▶ Play on TV',
+    lastSelected: 'Last selected',
+    tryNext: 'Try next source',
     notCachedWarning: 'Not cached: this may start a download on your account. Tap again to play.',
     addToQueue: 'Add source {{n}} to the queue',
     queue: '＋ Queue',

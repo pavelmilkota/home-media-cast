@@ -39,6 +39,17 @@ export const progress = sqliteTable('progress', {
   lastPlayedAt: integer('last_played_at').notNull(),
 });
 
+/**
+ * The release last started for a movie or an episode (JSON; holds the torrent info hash), so the
+ * source list can flag it as last selected. Written when a play starts, whether or not enough was
+ * watched to save progress. Host only: never returned by the API (AGENTS.md secrets rule).
+ */
+export const lastSource = sqliteTable('last_source', {
+  videoId: text('video_id').primaryKey(),
+  releaseKey: text('release_key').notNull(),
+  playedAt: integer('played_at').notNull(),
+});
+
 /** The last raw AIOStreams answer for a title (`<type>:<id>`); a cache, safe to delete. */
 export const streamCache = sqliteTable('stream_cache', {
   key: text('key').primaryKey(),
@@ -47,4 +58,11 @@ export const streamCache = sqliteTable('stream_cache', {
   /** JSON string[]. */
   errors: text('errors').notNull(),
   fetchedAt: integer('fetched_at').notNull(),
+});
+
+/** Small household-wide settings as JSON values, e.g. the audio and subtitle language last chosen. */
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  /** JSON. */
+  value: text('value').notNull(),
 });
