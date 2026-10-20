@@ -1,5 +1,5 @@
 import type { StreamOption, StreamsResponse, TitleDetail } from '@home-media-cast/shared';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { auth } from '../api/auth.js';
@@ -91,6 +91,64 @@ const search = async () => {
   await screen.findByRole('region', { name: 'Sources' });
 };
 describe('find a source', () => {
+  it('filters the list by audio, subtitles, resolution and quality', async () => {
+    const body: StreamsResponse = {
+      ...OPTIONS,
+      options: [
+        option({
+          id: 'a',
+          title: 'Alpha',
+          languages: ['Ukrainian'],
+          subtitles: ['English'],
+          resolution: '1080p',
+          quality: 'BluRay',
+        }),
+        option({
+          id: 'b',
+          title: 'Bravo',
+          languages: ['English'],
+          subtitles: ['Polish'],
+          resolution: '2160p',
+          quality: 'WEB-DL',
+        }),
+        option({
+          id: 'c',
+          title: 'Charlie',
+          languages: ['English'],
+          resolution: '1080p',
+          quality: 'WEB-DL',
+        }),
+      ],
+    };
+    backend.on('GET /titles/movie/tt0111161/streams', { status: 200, body });
+    await open();
+    await search();
+    await screen.findByText('Alpha');
+    expect(screen.queryByRole('group', { name: 'Audio' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+    const group = (name: string) => within(screen.getByRole('group', { name }));
+    const list = () => screen.getAllByRole('listitem').map((li) => li.textContent);
+
+    await userEvent.click(group('Audio').getByRole('button', { name: 'English' }));
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
+    expect(screen.getByText('Bravo')).toBeInTheDocument();
+    expect(screen.getByText('Charlie')).toBeInTheDocument();
+    expect(screen.getByText('Showing 2 of 3')).toBeInTheDocument();
+
+    // Another group narrows further; two values of one group widen it.
+    await userEvent.click(group('Resolution').getByRole('button', { name: '1080p' }));
+    expect(list()).toHaveLength(1);
+    expect(screen.getByText('Charlie')).toBeInTheDocument();
+    await userEvent.click(group('Quality').getByRole('button', { name: 'BluRay' }));
+    expect(screen.getByText('Nothing matches these filters.')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    await userEvent.click(group('Subtitles').getByRole('button', { name: 'Polish' }));
+    expect(screen.getByText('Bravo')).toBeInTheDocument();
+    expect(screen.queryByText('Charlie')).not.toBeInTheDocument();
+  });
+
   it('lists the sources with their details, never a URL', async () => {
     backend.on('GET /titles/movie/tt0111161/streams', { status: 200, body: OPTIONS });
     await open();

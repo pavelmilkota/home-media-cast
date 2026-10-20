@@ -83,6 +83,7 @@ export const en = {
   miniPlayer: {
     progress: 'Playback progress',
     nowPlaying: 'Now playing: {{title}}',
+    upNext: 'Up next: {{name}}',
   },
   pairing: {
     intro: 'Pair this device with the TV. The code appears on the screen.',
@@ -212,9 +213,20 @@ export const en = {
     notCachedWarning: 'Not cached: this may start a download on your account. Tap again to play.',
     addToQueue: 'Add source {{n}} to the queue',
     queue: '＋ Queue',
+    inQueue: '✓ In the queue',
     queued: 'Added to the queue. The release is picked again when its turn comes.',
     waiting: 'Waiting for the TV to start the video…',
     failed: 'The TV did not start the video. Try another source.',
+    filters: {
+      title: 'Filters',
+      audio: 'Audio',
+      subtitles: 'Subtitles',
+      resolution: 'Resolution',
+      quality: 'Quality',
+      noMatch: 'Nothing matches these filters.',
+      clear: 'Clear filters',
+      shown: 'Showing {{shown}} of {{total}}',
+    },
   },
   settings: {
     title: 'Settings',

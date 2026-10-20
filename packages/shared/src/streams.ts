@@ -17,8 +17,12 @@ export interface StreamOption {
   sizeBytes?: number;
   /** Audio languages the source reports, as AIOStreams names them ("Ukrainian", "English"). */
   languages?: string[];
+  /** Subtitle languages the source offers, named like `languages`. */
+  subtitles?: string[];
   /** "1080p", "2160p"… as reported. */
   resolution?: string;
+  /** Source quality as reported: "BluRay", "WEB-DL", "WEBRip"… */
+  quality?: string;
   /** False for kinds we cannot play; `reason` says why. */
   playable: boolean;
   reason?: string;

@@ -86,6 +86,7 @@ export const pl: Messages = {
   miniPlayer: {
     progress: 'Postęp odtwarzania',
     nowPlaying: 'Teraz odtwarzane: {{title}}',
+    upNext: 'Dalej: {{name}}',
   },
   pairing: {
     intro: 'Sparuj to urządzenie z telewizorem. Kod pojawi się na ekranie.',
@@ -217,9 +218,20 @@ export const pl: Messages = {
       'Brak w pamięci podręcznej: może to rozpocząć pobieranie na Twoim koncie. Dotknij ponownie, aby odtworzyć.',
     addToQueue: 'Dodaj źródło {{n}} do kolejki',
     queue: '＋ Kolejka',
+    inQueue: '✓ W kolejce',
     queued: 'Dodano do kolejki. Wydanie zostanie wybrane ponownie, gdy przyjdzie jego kolej.',
     waiting: 'Czekam, aż telewizor uruchomi wideo…',
     failed: 'Telewizor nie uruchomił wideo. Spróbuj innego źródła.',
+    filters: {
+      title: 'Filtry',
+      audio: 'Dźwięk',
+      subtitles: 'Napisy',
+      resolution: 'Rozdzielczość',
+      quality: 'Jakość',
+      noMatch: 'Nic nie pasuje do tych filtrów.',
+      clear: 'Wyczyść filtry',
+      shown: 'Pokazano {{shown}} z {{total}}',
+    },
   },
   settings: {
     title: 'Ustawienia',
