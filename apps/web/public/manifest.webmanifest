@@ -1,0 +1,9 @@
+{
+  "name": "Home Media Cast",
+  "short_name": "Media Cast",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1faf6",
+  "theme_color": "#f1faf6",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

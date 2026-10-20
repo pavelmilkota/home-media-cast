@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+@import '@heroui/styles';
+
+/*
+ * Mint theme for HeroUI: the semantic variables below replace the defaults. Light by default,
+ * dark through prefers-color-scheme (hue 165 = green-teal); components and states come from HeroUI.
+ */
+:root,
+[data-theme='light'] {
+  color-scheme: light dark;
+  --hue: 170;
+  --accent-hue: 165;
+  --background: oklch(0.975 0.014 var(--hue));
+  --foreground: oklch(0.27 0.04 var(--hue));
+  --surface: oklch(1 0 0);
+  --surface-foreground: oklch(0.27 0.04 var(--hue));
+  --surface-secondary: oklch(0.955 0.02 var(--hue));
+  --surface-secondary-foreground: oklch(0.27 0.04 var(--hue));
+  --surface-tertiary: oklch(0.93 0.026 var(--hue));
+  --surface-tertiary-foreground: oklch(0.27 0.04 var(--hue));
+  --overlay: oklch(1 0 0);
+  --overlay-foreground: oklch(0.27 0.04 var(--hue));
+  --muted: oklch(0.52 0.04 var(--hue));
+  --default: oklch(0.935 0.025 var(--hue));
+  --default-foreground: oklch(0.34 0.05 var(--hue));
+  --accent: oklch(0.57 0.12 var(--accent-hue));
+  --accent-foreground: oklch(0.99 0.005 var(--accent-hue));
+  --field-background: oklch(1 0 0);
+  --field-foreground: oklch(0.27 0.04 var(--hue));
+  --field-placeholder: oklch(0.62 0.035 var(--hue));
+  --field-border: oklch(0.88 0.03 var(--hue));
+  --success: oklch(0.66 0.16 150);
+  --success-foreground: oklch(0.2 0.06 150);
+  --warning: oklch(0.8 0.15 80);
+  --warning-foreground: oklch(0.3 0.08 80);
+  --danger: oklch(0.63 0.22 20);
+  --danger-foreground: oklch(0.99 0.005 20);
+  --border: oklch(0.9 0.025 var(--hue));
+  --separator: oklch(0.91 0.02 var(--hue));
+  --focus: var(--accent);
+  --link: oklch(0.5 0.12 var(--accent-hue));
+  --radius: 0.75rem;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* Dark: forced through data-theme, or by the system unless light was forced. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: oklch(0.17 0.02 var(--hue));
+  --foreground: oklch(0.94 0.015 var(--hue));
+  --surface: oklch(0.22 0.025 var(--hue));
+  --surface-foreground: oklch(0.94 0.015 var(--hue));
+  --surface-secondary: oklch(0.26 0.028 var(--hue));
+  --surface-secondary-foreground: oklch(0.94 0.015 var(--hue));
+  --surface-tertiary: oklch(0.3 0.03 var(--hue));
+  --surface-tertiary-foreground: oklch(0.94 0.015 var(--hue));
+  --overlay: oklch(0.25 0.027 var(--hue));
+  --overlay-foreground: oklch(0.94 0.015 var(--hue));
+  --muted: oklch(0.72 0.03 var(--hue));
+  --default: oklch(0.3 0.03 var(--hue));
+  --default-foreground: oklch(0.9 0.02 var(--hue));
+  --accent: oklch(0.76 0.13 var(--accent-hue));
+  --accent-foreground: oklch(0.2 0.05 var(--accent-hue));
+  --field-background: oklch(0.24 0.027 var(--hue));
+  --field-foreground: oklch(0.94 0.015 var(--hue));
+  --field-placeholder: oklch(0.6 0.03 var(--hue));
+  --field-border: oklch(0.36 0.03 var(--hue));
+  --success: oklch(0.74 0.16 150);
+  --success-foreground: oklch(0.2 0.06 150);
+  --warning: oklch(0.82 0.15 80);
+  --warning-foreground: oklch(0.25 0.06 80);
+  --danger: oklch(0.7 0.19 20);
+  --danger-foreground: oklch(0.18 0.05 20);
+  --border: oklch(0.32 0.028 var(--hue));
+  --separator: oklch(0.3 0.025 var(--hue));
+  --link: oklch(0.8 0.12 var(--accent-hue));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --background: oklch(0.17 0.02 var(--hue));
+    --foreground: oklch(0.94 0.015 var(--hue));
+    --surface: oklch(0.22 0.025 var(--hue));
+    --surface-foreground: oklch(0.94 0.015 var(--hue));
+    --surface-secondary: oklch(0.26 0.028 var(--hue));
+    --surface-secondary-foreground: oklch(0.94 0.015 var(--hue));
+    --surface-tertiary: oklch(0.3 0.03 var(--hue));
+    --surface-tertiary-foreground: oklch(0.94 0.015 var(--hue));
+    --overlay: oklch(0.25 0.027 var(--hue));
+    --overlay-foreground: oklch(0.94 0.015 var(--hue));
+    --muted: oklch(0.72 0.03 var(--hue));
+    --default: oklch(0.3 0.03 var(--hue));
+    --default-foreground: oklch(0.9 0.02 var(--hue));
+    --accent: oklch(0.76 0.13 var(--accent-hue));
+    --accent-foreground: oklch(0.2 0.05 var(--accent-hue));
+    --field-background: oklch(0.24 0.027 var(--hue));
+    --field-foreground: oklch(0.94 0.015 var(--hue));
+    --field-placeholder: oklch(0.6 0.03 var(--hue));
+    --field-border: oklch(0.36 0.03 var(--hue));
+    --success: oklch(0.74 0.16 150);
+    --success-foreground: oklch(0.2 0.06 150);
+    --warning: oklch(0.82 0.15 80);
+    --warning-foreground: oklch(0.25 0.06 80);
+    --danger: oklch(0.7 0.19 20);
+    --danger-foreground: oklch(0.18 0.05 20);
+    --border: oklch(0.32 0.028 var(--hue));
+    --separator: oklch(0.3 0.025 var(--hue));
+    --link: oklch(0.8 0.12 var(--accent-hue));
+  }
+}
+
+/* Accent presets: the hue drives surfaces and accent together. Blue, green, amber and rose are HeroUI's own hues. */
+:root[data-accent='blue'] {
+  --hue: 254;
+  --accent-hue: 254;
+}
+:root[data-accent='green'] {
+  --hue: 150;
+  --accent-hue: 150;
+}
+:root[data-accent='amber'] {
+  --hue: 76;
+  --accent-hue: 76;
+}
+:root[data-accent='rose'] {
+  --hue: 25;
+  --accent-hue: 25;
+}
+:root[data-accent='violet'] {
+  --hue: 295;
+  --accent-hue: 295;
+}
+
+/* The page itself; everything else is HeroUI components plus Tailwind utilities in the markup. */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100dvh;
+  -webkit-text-size-adjust: 100%;
+}

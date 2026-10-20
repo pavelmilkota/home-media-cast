@@ -1,0 +1,11 @@
+# Starts kodi-restart.service when the API creates the trigger file (docs/kodi-setup.md).
+# The path must match KODI_RESTART_DIR in .env.
+[Unit]
+Description=Restart Kodi when Home Media Cast asks for it
+
+[Path]
+PathExists=%h/.local/share/home-media-cast/restart/kodi-restart
+Unit=kodi-restart.service
+
+[Install]
+WantedBy=default.target
