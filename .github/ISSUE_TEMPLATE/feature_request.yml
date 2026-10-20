@@ -1,0 +1,15 @@
+name: Feature request
+description: Propose a change (open this before starting anything bigger than a bug fix)
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that you cannot do now?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
