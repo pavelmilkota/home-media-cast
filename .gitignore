@@ -6,7 +6,7 @@ coverage/
 *.sqlite-*
 .DS_Store
 
-# Personal Stremio export (scripts/seed-library.mjs); seed/stremio-library.example.json shows the shape.
-seed/stremio-library.json
+# Personal library exports
+seed/
 # Local planning notes
 context/
