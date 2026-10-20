@@ -4,12 +4,12 @@ Diagrams (Mermaid) and the reasoning are in
 [`diagrams.md`](diagrams.md);
 decisions are in [`adr/`](adr/).
 
-## As built in Stage 1
+## Overview
 
 ```
-phone / tablet ──HTTP :8787──▶  API (NestJS) ──WebSocket 127.0.0.1:9090──▶ Kodi ──HDMI──▶ projector
-   PWA (React)  ◀── SSE ──────  + built web UI
-                                SQLite (paired devices)
+phone / tablet ──HTTP :8787──▶  API (NestJS) ──WebSocket 127.0.0.1:9090──▶ Kodi ──HDMI──▶ TV
+   PWA (React)  ◀── SSE ──────  + built web UI                                       or projector
+                                SQLite (paired devices, library, cache)
 ```
 
 - `apps/api` — NestJS 12: `auth` (bearer guard, devices), `pairing`, `playback` (SSRF guard),
@@ -17,7 +17,7 @@ phone / tablet ──HTTP :8787──▶  API (NestJS) ──WebSocket 127.0.0.1
   `db` (Drizzle + SQLite).
 - `apps/web` — React 19 PWA (HeroUI). Bottom bar: Home, Search, Library. A mini-player above it
   appears while a video plays and opens the Remote as a bottom sheet. The gear in the header
-  opens Settings (volume, TV buttons, paired devices). Search searches as you type (300 ms
+  opens Settings (volume, TV buttons, paired devices). Search runs as you type (after a 300 ms
   pause) and, with an empty box, lists popular / new / featured titles with infinite scroll
   (`GET /api/catalog/browse`, ADR-0006). A pasted web link in Search offers "Play this link on TV". Light and dark follow the system setting.
   Navigation is TanStack Router (code-based, `apps/web/src/router.tsx`); every screen has a URL:
@@ -30,9 +30,9 @@ phone / tablet ──HTTP :8787──▶  API (NestJS) ──WebSocket 127.0.0.1
 - `apps/api/src/tv` — `POST /api/tv/fullscreen|home|restart-kodi` (ADR-0008).
 - `packages/shared` — types and Zod schemas used by both; the same schemas generate the
   OpenAPI request bodies.
-- **Source list cache** (`apps/api/src/sources`, change `streams-cache`). The raw AIOStreams
+- **Source list cache** (`apps/api/src/sources`). The raw AIOStreams
   answer for a title is kept in SQLite (`stream_cache`, key `<type>:<id>`, one row per movie or
-  episode), so opening the source picker no longer waits for a search. It is
+  episode), so the source picker opens without waiting for a search. It is
   stale-while-revalidate: a cached list is returned at once and refreshed in the background
   (at most once per 15 s per title, or at once with `?refresh=1`); the response carries
   `fetchedAt`, `refreshing` and `refreshError`, and the picker polls every 2 s while

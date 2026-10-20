@@ -9,7 +9,7 @@ hardware, which is why it is only a test machine.
 ## What to look for
 
 - **Hardware HEVC Main10 + VP9 profile 2:** Intel Kaby Lake (7th gen) / Gemini Lake or newer,
-  AMD Raven Ridge or newer. **Skylake (6th gen, `i5-6xxx`) is the same HD 530 as the Dell: no.**
+  AMD Raven Ridge or newer. **Skylake (6th gen, `i5-6xxx`) has the same HD 530 as the test machine: avoid.**
 - **Native HDMI 2.0a** for 4K60 + HDR. Kaby Lake NUCs use an LSPCON converter chip, and HDR
   through it was reported broken on Linux/LibreELEC (4K60 works). Gemini Lake has native HDMI 2.0a.
 - No AV1 hardware decode below Intel 11th gen / AMD RDNA2; not reachable in this budget and
@@ -37,7 +37,7 @@ can return it. Budget a little extra for a bigger SSD and an HDMI cable rated fo
 - Intel's [NUC7CJY/NUC7PJY spec](https://www.intel.com/content/dam/support/us/en/documents/mini-pcs/nuc-kits/NUC7xJY_TechProdSpec.pdf)
   confirms HEVC 8/10-bit and VP9 decode, native HDMI 2.0a, HDCP 2.2, max 8 GB RAM, Wi-Fi AC 9462.
   It says **nothing about HDR**, and lists HDMI output as "4096x2160 @ 60 Hz, 24 bpp".
-- Community reports (LibreELEC/Kodi forums, 2018-2021; Reddit is not reachable from this tool):
+- Community reports (LibreELEC/Kodi forums, 2018-2021; Reddit was not checked):
   HDR works on Gemini Lake (J5005 on a [LibreELEC devel build, 2021](https://forum.libreelec.tv/thread/13738-intel-true-10bits-hevc-hdr-support/?pageNo=42)),
   but **4K24 HDR worked and 4K60 HDR did not** in experimental builds
   ([thread](https://forum.libreelec.tv/thread/13738-intel-true-10bits-hevc-hdr-support/?pageNo=6)).

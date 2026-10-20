@@ -61,7 +61,7 @@ Open `http://<PC address>:8787` on the phone, tap **Show code on TV**, type the 
 that appears on the projector, and name the device. ⚠️ Android, iPhone and tablet are not
 tested yet ([testing.md](testing.md)).
 
-## Not done in Stage 1
+## Not covered yet
 
-Autostart of Kodi and of the container on boot (the Dell is a working machine), HTTPS and
-installing the PWA to the home screen (Stage 2 spike, ADR-0007).
+Starting Kodi and the container on boot (the test machine is also used for other work), HTTPS,
+and installing the PWA to the home screen (ADR-0007).

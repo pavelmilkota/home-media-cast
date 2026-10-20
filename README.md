@@ -1,35 +1,36 @@
 # home-media-cast
 
-**A home-built replacement for a Chromecast: a small PC running Kodi, plugged into your TV or
-projector, controlled from any phone or tablet.**
+**A do-it-yourself Chromecast: a small PC running Kodi, plugged into your TV or projector, and
+controlled from any phone or tablet.**
 
-Open the web remote on a phone, search a title, pick a source, and it plays on the big screen.
-Cast YouTube from the YouTube app as you would to a Chromecast. Paste a video link and play it.
-Nothing leaves your home network except the requests to the services you choose to use.
+Search for a title on your phone, pick a source, and it plays on the big screen. Cast from the
+YouTube app the same way you would to a Chromecast, or paste a video link. The app talks only to
+the services you configure; nothing else leaves your home network.
 
 > **License:** [PolyForm Noncommercial 1.0.0](LICENSE). Free for personal, hobby, educational and
 > other noncommercial use. This is *source-available*, not OSI "open source".
-> **Status:** early. Several parts are tested only against fake devices; every unverified claim in
-> the docs is marked ⚠️.
+>
+> **Status:** early. Several parts have only been tested against fakes; anything not yet tried
+> by hand is marked ⚠️ in the docs.
 
-## The pain
+## Why
 
-- **Chromecast and similar sticks are closed.** They are tied to a vendor account, may stop
-  working when the vendor changes course, and give you no control over what runs on them.
-- **Stremio is a great catalog and source aggregator, but a poor TV box.** On a PC or a
-  phone it is excellent. On a living-room screen you end up with a laptop and an HDMI cable, or
-  a TV app that is not what you configured on your own server.
-- **Low-end sticks run out of memory.** A Chromecast HD, for example, has very little RAM and
-  freezes on high-resolution, high-bitrate or very large video files. A small PC running Kodi
-  has the memory and decoding headroom to play them.
-- **A Kodi box is the best player** (hardware decoding, HDR, every codec), but its remote and
-  library UI are made for a keyboard or a couch remote, not for "find the film my friend
-  mentioned" on a phone.
+- **Streaming sticks are closed.** A Chromecast is tied to a vendor account, can lose features
+  when the vendor changes its plans, and runs only what the vendor allows.
+- **Cheap sticks run out of memory.** A Chromecast HD, for example, has little RAM and stalls
+  on high-bitrate or very large files. A small PC has the memory and hardware decoding to play
+  them.
+- **Stremio is a great catalog, but not a TV box.** It works well on a laptop or a phone. On
+  the living-room screen that usually means an HDMI cable to a laptop, or a TV app that does
+  not use the setup you configured.
+- **Kodi is an excellent player** (hardware decoding, HDR, almost any codec), but its interface
+  is built for a keyboard or a TV remote. Finding a film by name from your phone is not what it
+  is good at.
 
 ## What it does
 
-home-media-cast is a small backend plus a PWA remote. It is the only thing that talks to Kodi, and
-Kodi is never exposed to the network.
+home-media-cast is a small backend and a web remote (a PWA). The backend is the only client of
+Kodi, and Kodi itself is never reachable from the network.
 
 - **Phone remote (PWA):** play, pause, seek, volume, subtitles and audio tracks, a queue, and a
   mini-player. Dark mode follows the system. English, Polish, Russian and Ukrainian.
@@ -40,22 +41,23 @@ Kodi is never exposed to the network.
   never sees a provider URL or key.
 - **YouTube:** cast from the YouTube app on Android (a built-in cast receiver), or paste a
   YouTube link.
-- **Pasted links:** a direct video link plays after an SSRF check.
-- **Pairing:** a phone becomes a remote by typing a 6-digit code that appears on the TV, so
-  only people in the room can control it.
+- **Pasted links:** a direct video link plays once it passes an SSRF check (no local or private
+  addresses).
+- **Pairing:** to become a remote, a phone enters a 6-digit code shown on the TV, so only
+  someone who can see the screen can pair.
 
-## Designed for AIOStreams, adjustable to others
+## Built for AIOStreams, open to others
 
 The source layer is built around [AIOStreams](https://github.com/Viren070/AIOStreams), an
 aggregator for Stremio-compatible addons. It works with a **self-hosted** or a **hosted**
 (for example ElfHosted) AIOStreams: the backend only needs a base URL, a user uuid and a
 password ([installation](docs/installation.md#4-choose-an-aiostreams-instance-optional)).
 
-Another torrent or stream aggregator can be added behind the same source interface
-(`apps/api/src/sources/stream-source.ts`, [ADR-0005](docs/adr/0005-source-model.md)). The rest of the
-app (catalog, library, relay, remote) does not depend on which aggregator produced the list.
+Another stream aggregator can be plugged in behind the same source interface
+(`apps/api/src/sources/stream-source.ts`, [ADR-0005](docs/adr/0005-source-model.md)). The rest of
+the app (catalog, library, relay, remote) does not care which aggregator produced the list.
 
-## Architecture in one picture
+## Architecture
 
 ```
 phone / tablet ──HTTP :8787──▶  API (NestJS) ──WebSocket 127.0.0.1:9090──▶ Kodi ──HDMI──▶ TV
@@ -75,23 +77,23 @@ cp .env.example .env
 docker compose up -d --build   # then open http://<this PC>:8787 on a phone
 ```
 
-Allow the API port from your LAN only ([docs/networking.md](docs/networking.md)). What hardware to
-buy is in [docs/hardware.md](docs/hardware.md); Home Assistant is covered in
+Open the API port to your LAN only ([docs/networking.md](docs/networking.md)). For hardware
+advice see [docs/hardware.md](docs/hardware.md); for Home Assistant see
 [docs/home-assistant.md](docs/home-assistant.md).
 
 ## Status
 
 | Area | State |
 |---|---|
-| Kodi client, API, pairing, SSRF check, PWA remote, Docker Compose | built; deployed on one test machine; phone and tablet tests still open |
-| YouTube casting | works from an Android phone (checked in logs); picture, sound and iPhone not yet verified |
+| Kodi client, API, pairing, SSRF check, PWA remote, Docker Compose | built; running on one test machine; ⚠️ phone and tablet runs not finished |
+| YouTube casting | works from an Android phone (confirmed in the logs); ⚠️ picture, sound and iPhone not verified |
 | Catalog and library (Cinemeta) | built and tested against a *fake* Cinemeta; ⚠️ not yet tried against the real one |
-| AIOStreams sources and relay | built and tested with a real Kodi and *fake* providers; ⚠️ real AIOStreams and TorBox probed only by spikes |
-| Debrid retry with a fresh link (TorBox client) | not built |
+| AIOStreams sources and relay | built and tested with a real Kodi and *fake* providers; ⚠️ real AIOStreams and TorBox only tried in throwaway prototypes |
+| Retry with a fresh debrid link (TorBox client) | not built |
 
 ## Seed the library from Stremio (optional)
 
-`scripts/seed-library.mjs` imports an export of the Stremio web library and history into the
+`scripts/seed-library.mjs` imports your Stremio web library and watch history into the
 database. Put your export at `seed/stremio-library.json` (git-ignored); the shape is in
 `seed/stremio-library.example.json`.
 
@@ -112,9 +114,9 @@ notes are in [docs/security.md](docs/security.md) and [SECURITY.md](SECURITY.md)
 
 ## Legal
 
-This project is a controller. It provides **no media, no addons and no indexers**. What you play
-and which services you connect to are your responsibility; follow the law and the terms of those
-services where you live. It is not affiliated with or endorsed by Kodi, Stremio, AIOStreams,
+This project is only a remote control. It ships **no media, no addons and no indexers**. What
+you play and which services you connect are up to you; follow your local law and the terms of
+those services. It is not affiliated with or endorsed by Kodi, Stremio, AIOStreams,
 ElfHosted, TorBox, Google or YouTube; Chromecast, Kodi and the other names belong to their owners.
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). Third-party licenses,
