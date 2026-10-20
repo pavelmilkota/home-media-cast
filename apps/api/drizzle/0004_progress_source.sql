@@ -1,0 +1,1 @@
+ALTER TABLE `progress` ADD `release_key` text;

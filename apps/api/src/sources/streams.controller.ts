@@ -35,7 +35,8 @@ export class StreamsController {
 
   /**
    * The sources for a title. Never contains a URL (see `StreamOption`). A cached list is served
-   * at once and updated in the background; `?refresh=1` forces an update.
+   * at once and updated in the background; `?refresh=1` forces an update. The source played last
+   * for this video, if any, is listed first and flagged `lastUsed`.
    */
   @Get('titles/:type/:id/streams')
   list(
@@ -48,8 +49,10 @@ export class StreamsController {
         'Expected movie|series and an id like tt0111161 (series: tt0111161:1:4)',
       );
     }
+    const lastRelease = this.watchPlay.lastReleaseOf(id);
     return this.streams.list(type as TitleType, id, {
       refresh: refresh === '1' || refresh === 'true',
+      ...(lastRelease ? { lastRelease } : {}),
     });
   }
 

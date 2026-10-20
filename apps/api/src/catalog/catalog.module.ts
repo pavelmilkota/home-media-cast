@@ -4,6 +4,7 @@ import { DbService } from '../db/db.service.js';
 import { KodiService } from '../kodi/kodi.service.js';
 import { PlayerModule } from '../player/player.module.js';
 import { PlayerStatusService } from '../player/player-status.service.js';
+import { TrackPreferences } from '../player/track-preferences.service.js';
 import { CatalogController } from './catalog.controller.js';
 import { CatalogService } from './catalog.service.js';
 import { CinemetaClient } from './cinemeta.client.js';
@@ -30,9 +31,13 @@ import { WatchTracker } from './watch-tracker.service.js';
     },
     {
       provide: WatchTracker,
-      inject: [PlayerStatusService, LibraryService, KodiService],
-      useFactory: (p: PlayerStatusService, l: LibraryService, k: KodiService) =>
-        new WatchTracker(p, l, (positionMs) => k.commands.seek({ positionMs })),
+      inject: [PlayerStatusService, LibraryService, KodiService, TrackPreferences],
+      useFactory: (
+        p: PlayerStatusService,
+        l: LibraryService,
+        k: KodiService,
+        t: TrackPreferences,
+      ) => new WatchTracker(p, l, (positionMs) => k.commands.seek({ positionMs }), {}, t),
     },
   ],
   exports: [CatalogService, WatchTracker],

@@ -13,12 +13,14 @@ import {
 import { Observable, map, merge, interval } from 'rxjs';
 import { KodiService } from '../kodi/kodi.service.js';
 import { PlayerStatusService } from './player-status.service.js';
+import { TrackPreferences } from './track-preferences.service.js';
 
 @Controller()
 export class PlayerController {
   constructor(
     private readonly kodi: KodiService,
     private readonly status: PlayerStatusService,
+    private readonly tracks: TrackPreferences,
   ) {}
 
   @Get('player/status')
@@ -58,14 +60,16 @@ export class PlayerController {
 
   @Post('player/audio')
   @HttpCode(204)
-  audio(@Body({ schema: AudioSchema }) dto: AudioDto): Promise<void> {
-    return this.kodi.commands.setAudioStream(dto.index);
+  async audio(@Body({ schema: AudioSchema }) dto: AudioDto): Promise<void> {
+    await this.kodi.commands.setAudioStream(dto.index);
+    await this.tracks.rememberAudio(dto.index);
   }
 
   @Post('player/subtitle')
   @HttpCode(204)
-  subtitle(@Body({ schema: SubtitleSchema }) dto: SubtitleDto): Promise<void> {
-    return this.kodi.commands.setSubtitle(dto.index);
+  async subtitle(@Body({ schema: SubtitleSchema }) dto: SubtitleDto): Promise<void> {
+    await this.kodi.commands.setSubtitle(dto.index);
+    await this.tracks.rememberSubtitle(dto.index);
   }
 
   /**

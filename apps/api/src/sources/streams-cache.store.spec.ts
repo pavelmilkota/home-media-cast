@@ -78,15 +78,15 @@ describe('stream_cache migration', () => {
   it('applies to a database already at 0001', () => {
     const dir = mkdtempSync(join(tmpdir(), 'hmc-db-'));
     const path = join(dir, 'app.db');
-    // A DB migrated up to 0001 only: create it with the full set, then drop the new table and
-    // its journal row, as an older install would look.
+    // A DB migrated up to 0001 only: create it with the full set, then drop the newer tables and
+    // their journal rows, as an older install would look.
     const first = new DbService(path);
     first.onModuleDestroy();
     const raw = new Database(path);
-    raw.exec('DROP TABLE stream_cache');
+    raw.exec('DROP TABLE stream_cache; DROP TABLE settings; DROP TABLE last_source');
     raw
       .prepare(
-        'DELETE FROM __drizzle_migrations WHERE created_at = (SELECT MAX(created_at) FROM __drizzle_migrations)',
+        'DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 4)',
       )
       .run();
     raw.close();

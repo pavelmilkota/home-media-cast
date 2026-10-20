@@ -32,6 +32,7 @@ function badges(
   t: TFunction,
 ): [string, 'accent' | 'default' | 'success' | 'warning'][] {
   const list: [string, 'accent' | 'default' | 'success' | 'warning'][] = [];
+  if (o.lastUsed) list.push([t('sources.lastSelected'), 'accent']);
   if (o.resolution) list.push([o.resolution, 'accent']);
   if (o.languages?.length) list.push([o.languages.join(', '), 'default']);
   if (o.service) list.push([serviceName[o.service] ?? o.service, 'default']);
@@ -120,7 +121,20 @@ export function SourcePicker({
   // Shown as a toast: the sources list is long, so an inline message would be off screen.
   const playError = play.isError ? play.error.message : undefined;
   useEffect(() => {
-    if (playError) toast.danger(playError, { timeout: 8000 });
+    if (!playError) return;
+    // A dead or expired link was already tried twice by the backend: offer the next source.
+    const dead =
+      play.error instanceof ApiError &&
+      (play.error.code === 'stream_expired' || play.error.code === 'stream_unreachable');
+    const all = sources.data?.options ?? [];
+    const next = dead ? all.slice(all.findIndex((o) => o.id === play.variables) + 1) : [];
+    const retry = next.find((o) => o.playable && o.cached !== false);
+    toast.danger(playError, {
+      timeout: 8000,
+      ...(retry
+        ? { actionProps: { children: t('sources.tryNext'), onPress: () => play.mutate(retry.id) } }
+        : {}),
+    });
   }, [playError, play.submittedAt]);
   useEffect(() => {
     if (phase === 'failed') toast.danger(t('sources.failed'), { timeout: 8000 });
@@ -255,7 +269,11 @@ export function SourcePicker({
           <ul className="grid gap-2">
             {shown.map((o, i) => (
               <li key={o.id}>
-                <Card variant="default" className="gap-3 border border-border">
+                <Card
+                  variant="default"
+                  className={`gap-3 border ${o.lastUsed ? 'border-2 border-accent bg-accent/10' : 'border-border'}`}
+                  data-last-used={o.lastUsed ? 'true' : undefined}
+                >
                   <Card.Content>
                     <Button
                       variant="secondary"

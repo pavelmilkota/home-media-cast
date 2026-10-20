@@ -51,6 +51,9 @@ export interface Meta extends MetaHit {
   videos: MetaVideo[];
 }
 
+/** Gateway errors that real Cinemeta gives a cold request; the same request then succeeds. */
+const RETRYABLE = new Set([502, 503, 504]);
+
 const ID = /^tt\d{1,10}$/;
 export const isImdbId = (id: string): boolean => ID.test(id);
 
@@ -228,18 +231,24 @@ export class CinemetaClient {
     };
   }
 
-  private async get(path: string): Promise<unknown> {
-    const hit = this.cache.get(path);
-    if (hit && hit.expiresAt > Date.now()) return hit.value;
-    let res: Response;
+  private async fetchOnce(path: string): Promise<Response> {
     try {
-      res = await this.fetchFn(this.base + path, {
+      return await this.fetchFn(this.base + path, {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch {
       throw new MetadataUnavailableError('Metadata is not reachable');
     }
+  }
+
+  private async get(path: string): Promise<unknown> {
+    const hit = this.cache.get(path);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
+    let res = await this.fetchOnce(path);
+    // Real Cinemeta answers a cold request with a Cloudflare 502/503/504 after ~6 s and serves the
+    // same request quickly once its origin has warmed up, so one retry usually succeeds.
+    if (RETRYABLE.has(res.status)) res = await this.fetchOnce(path);
     if (res.status === 404) throw new TitleNotFoundError('Unknown title');
     if (!res.ok) throw new MetadataUnavailableError(`Metadata answered ${res.status}`);
     const body: unknown = await res.json().catch(() => undefined);

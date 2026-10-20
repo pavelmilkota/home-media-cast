@@ -8,7 +8,7 @@ import type {
 } from '@home-media-cast/shared';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service.js';
-import { progress, titles } from '../db/schema.js';
+import { lastSource, progress, titles } from '../db/schema.js';
 
 /** Past this share of the runtime an item counts as watched (credits roll). */
 export const WATCHED_AT = 0.9;
@@ -125,6 +125,21 @@ export class LibraryService {
       })
       .onConflictDoUpdate({ target: progress.videoId, set: values })
       .run();
+  }
+
+  /** Remembers the release started for a video, even if it is stopped within seconds. */
+  rememberRelease(videoId: string, releaseKey: string, now = Date.now()): void {
+    this.db.orm
+      .insert(lastSource)
+      .values({ videoId, releaseKey, playedAt: now })
+      .onConflictDoUpdate({ target: lastSource.videoId, set: { releaseKey, playedAt: now } })
+      .run();
+  }
+
+  /** The release last started for a movie or an episode, if known. Host only. */
+  lastReleaseOf(videoId: string): string | undefined {
+    return this.db.orm.select().from(lastSource).where(eq(lastSource.videoId, videoId)).get()
+      ?.releaseKey;
   }
 
   /** Where to pick an unfinished movie or episode up again; undefined if there is no such place. */

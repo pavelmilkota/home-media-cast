@@ -263,6 +263,73 @@ describe('find a source', () => {
   });
 });
 
+describe('last selected source and retry', () => {
+  const LIST: StreamsResponse = {
+    ...OPTIONS,
+    options: [
+      option({ id: 'last', title: 'Played.before.mkv', lastUsed: true, resolution: '1080p' }),
+      option({ id: 'dead', title: 'Dead.link.mkv' }),
+      option({ id: 'unc', title: 'Uncached.mkv', cached: false }),
+      option({ id: 'next', title: 'Next.source.mkv' }),
+    ],
+  };
+
+  it('badges the source played last, once, and keeps the server order', async () => {
+    backend.on('GET /titles/movie/tt0111161/streams', { status: 200, body: LIST });
+    await open();
+    await search();
+    const buttons = await screen.findAllByRole('button', { name: /\.mkv/ });
+    expect(buttons[0]).toHaveTextContent('Played.before.mkv');
+    expect(within(buttons[0]!).getByText('Last selected')).toBeInTheDocument();
+    expect(screen.getAllByText('Last selected')).toHaveLength(1);
+    // ...and the card is outlined, so it stands out in a long list.
+    expect(document.querySelectorAll('[data-last-used="true"]')).toHaveLength(1);
+    expect(buttons[0]?.closest('[data-last-used]')).not.toBeNull();
+  });
+
+  it('offers the next playable cached source after a dead link, and plays it', async () => {
+    backend.on('GET /titles/movie/tt0111161/streams', { status: 200, body: LIST });
+    backend.on('POST /playback/stream', (call) =>
+      (call.body as { optionId: string }).optionId === 'dead'
+        ? {
+            status: 502,
+            body: {
+              error: 'stream_expired',
+              message: 'The source link has expired or was refused',
+            },
+          }
+        : { status: 202, body: { status: 'accepted' } },
+    );
+    await open();
+    await search();
+    await userEvent.click(await screen.findByRole('button', { name: /Dead\.link\.mkv/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Try next source' }));
+    await waitFor(() => expect(backend.callsTo('POST /playback/stream')).toHaveLength(2));
+    // The uncached source in between is skipped: it could start a download.
+    expect(backend.callsTo('POST /playback/stream')[1]?.body).toMatchObject({ optionId: 'next' });
+  });
+
+  it('offers no next source when the failed one is the last, or the error is not a dead link', async () => {
+    backend.on('GET /titles/movie/tt0111161/streams', { status: 200, body: LIST });
+    backend.on('POST /playback/stream', (call) =>
+      (call.body as { optionId: string }).optionId === 'next'
+        ? {
+            status: 502,
+            body: { error: 'stream_unreachable', message: 'The source did not respond' },
+          }
+        : { status: 422, body: { error: 'not_playable', message: 'Cannot be played' } },
+    );
+    await open();
+    await search();
+    await userEvent.click(await screen.findByRole('button', { name: /Dead\.link\.mkv/ }));
+    expect(await screen.findByText('Cannot be played')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try next source' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Next\.source\.mkv/ }));
+    expect(await screen.findByText('The source did not respond')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try next source' })).not.toBeInTheDocument();
+  });
+});
+
 describe('cached list', () => {
   const STREAMS = 'GET /titles/movie/tt0111161/streams';
   const fresh = (title: string): StreamsResponse => ({

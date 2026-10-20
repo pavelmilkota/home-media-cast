@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LibraryResponse, StreamsResponse } from '@home-media-cast/shared';
+import { LibraryService } from '../catalog/library.service.js';
 import { DbService } from '../db/db.service.js';
 import { createTestApp, pairDevice, type TestApp } from '../testing/test-app.js';
 
@@ -212,6 +213,107 @@ describe('streams (e2e)', () => {
     const res = await play(cached.id);
     expect(res.status).toBe(502);
     expect(res.body).toMatchObject({ error: 'stream_expired' });
+  });
+
+  /** Replaces the provider's answer with one that counts its requests and can fail the first ones. */
+  const flakyProvider = (failFirst: number) => {
+    const seen = { count: 0 };
+    provider.removeAllListeners('request');
+    provider.on('request', (_req, res) => {
+      seen.count++;
+      const ok = seen.count > failFirst;
+      res
+        .writeHead(ok ? 200 : 403, {
+          'content-type': 'video/mp4',
+          'content-length': String(VIDEO.length),
+        })
+        .end(ok ? VIDEO : '');
+    });
+    return seen;
+  };
+
+  it('asks for a fresh link once when the first one is refused, then plays', async () => {
+    await start();
+    const cached = (await optionsOf()).find((o) => o.title === 'Cached.1080p.mkv')!;
+    const seen = flakyProvider(1);
+    const res = await play(cached.id);
+    expect(res.status).toBe(202);
+    expect(seen.count).toBe(2);
+    expect(t.kodi.requests.filter((r) => r.method === 'Player.Open')).toHaveLength(1);
+  });
+
+  it('gives up after exactly two attempts and never opens a dead link in Kodi', async () => {
+    await start();
+    const cached = (await optionsOf()).find((o) => o.title === 'Cached.1080p.mkv')!;
+    const seen = flakyProvider(99);
+    const res = await play(cached.id);
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({ error: 'stream_expired' });
+    expect(seen.count).toBe(2);
+    expect(t.kodi.requests.filter((r) => r.method === 'Player.Open')).toHaveLength(0);
+  });
+
+  it('does not retry a source that cannot be played', async () => {
+    await start();
+    const usenet = (await optionsOf()).find((o) => o.title === 'Usenet')!;
+    const seen = flakyProvider(0);
+    expect((await play(usenet.id)).status).toBe(422);
+    expect(seen.count).toBe(0);
+  });
+
+  describe('last selected source', () => {
+    const HASH_B = 'beef0000beef0000beef0000beef0000beef0000';
+    const KEY = JSON.stringify({ r: '', l: [], h: HASH_B });
+    const answer = () => {
+      const r = (filename: string, infoHash: string) => ({
+        url: `http://127.0.0.1:${providerPort}/dl?token=${SECRET}`,
+        infoHash,
+        filename,
+        cached: true,
+      });
+      aioReply = (res) =>
+        void res.writeHead(200, { 'content-type': 'application/json' }).end(
+          JSON.stringify({
+            success: true,
+            data: {
+              results: [r('A.mkv', HASH), r('B.mkv', HASH_B), r('C.mkv', HASH)],
+              errors: [],
+            },
+          }),
+        );
+    };
+    const played = (db: DbService, videoId: string, releaseKey?: string) => {
+      if (releaseKey) new LibraryService(db).rememberRelease(videoId, releaseKey);
+    };
+
+    it('lists the release played before first, flagged, and leaves the others in order', async () => {
+      answer();
+      const db = new DbService(':memory:');
+      played(db, 'tt7049682:1:4', KEY);
+      await start(true, undefined, db);
+      const body = (await list()).body as StreamsResponse;
+      expect(body.options.map((o) => o.title)).toEqual(['B.mkv', 'A.mkv', 'C.mkv']);
+      expect(body.options.filter((o) => o.lastUsed)).toHaveLength(1);
+      expect(body.options[0]?.lastUsed).toBe(true);
+      expect(JSON.stringify(body)).not.toMatch(/beef0000|dace3fb3|token|SECRET/);
+      // The flag is per request: the minted ids still play, and the order is not stored.
+      expect((await play(body.options[0]!.id)).status).toBe(202);
+    });
+
+    it('changes nothing for another episode, without a stored release, or when nothing matches', async () => {
+      answer();
+      const db = new DbService(':memory:');
+      played(db, 'tt7049682:1:3', KEY); // a different episode
+      played(db, 'tt7049682:1:5'); // played from a pasted link: no release
+      played(db, 'tt7049682:1:6', JSON.stringify({ r: '', l: [], h: 'f'.repeat(40) })); // gone
+      await start(true, undefined, db);
+      for (const ep of ['1:4', '1:5', '1:6']) {
+        const res = await t.http('GET', `/titles/series/tt7049682:${ep}/streams`, { token });
+        const body = res.body as StreamsResponse;
+        expect(body.options.map((o) => o.title)).toEqual(['A.mkv', 'B.mkv', 'C.mkv']);
+        expect(body.options.some((o) => o.lastUsed)).toBe(false);
+      }
+    });
   });
 
   it('records watch progress for a play that names its catalog title', async () => {
