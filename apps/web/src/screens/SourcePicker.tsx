@@ -1,12 +1,21 @@
-import { Button, Card, Checkbox, Chip } from '@heroui/react';
+import { Button, Card, Chip, ProgressBar, Switch } from '@heroui/react';
 import type { CatalogType, StreamOption, StreamsResponse } from '@home-media-cast/shared';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, api } from '../api/client.js';
 import { ageLabel } from '../format.js';
 import { useLive } from '../state/live.js';
+import {
+  NO_FILTERS,
+  SourceFilters,
+  applyFilters,
+  filterChoices,
+  hasFilters,
+} from './source-filters.js';
+import { useQueue } from '../state/queue.js';
+import { QueueCard } from './QueueCard.js';
 import { useStartWatch } from './use-start-watch.js';
 
 /** Resolving a debrid link can take a while; this is longer than for a plain link. */
@@ -63,6 +72,7 @@ export function SourcePicker({
   const { status } = useLive();
   const [confirming, setConfirming] = useState<string | undefined>();
   const [resume, setResume] = useState(true);
+  const [filters, setFilters] = useState(NO_FILTERS);
   const { phase, begin, arm } = useStartWatch(status, onStarted, startTimeoutMs);
 
   // Set by Retry: the next fetch asks the server to update its cached list right now.
@@ -107,9 +117,12 @@ export function SourcePicker({
     },
   });
 
+  const client = useQueryClient();
+  const queued = useQueue().items.some((q) => q.type === type && q.videoId === videoId);
   const enqueue = useMutation({
     mutationFn: (optionId: string) =>
       api('/queue', { method: 'POST', body: { optionId, title: { type, id: videoId } } }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['queue'] }),
   });
 
   const choose = (o: StreamOption) => {
@@ -120,6 +133,11 @@ export function SourcePicker({
   };
   const busy = play.isPending || phase === 'starting';
   const result = sources.data;
+  const choices = useMemo(() => filterChoices(result?.options ?? []), [result?.options]);
+  const shown = useMemo(
+    () => applyFilters(result?.options ?? [], filters),
+    [result?.options, filters],
+  );
 
   return (
     <Card role="region" aria-label={t('sources.title')}>
@@ -132,14 +150,43 @@ export function SourcePicker({
         {embedded ? t('sources.title') : heading}
       </h2>
       {resumeAt !== undefined && (
-        <Checkbox isSelected={resume} onChange={setResume}>
-          <Checkbox.Control>
-            <Checkbox.Indicator />
-          </Checkbox.Control>
-          <Checkbox.Content>
-            {t('sources.resume', { percent: Math.round(resumeAt * 100) })}
-          </Checkbox.Content>
-        </Checkbox>
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-surface-secondary p-3">
+          <span
+            aria-hidden="true"
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent/15 text-accent"
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22">
+              <path
+                d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M10 9l5 3-5 3z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <div className="grid min-w-0 flex-1 gap-2">
+            <Switch isSelected={resume} onChange={setResume} className="w-full justify-between">
+              <Switch.Content className="w-full justify-between gap-3 font-medium">
+                <span>{t('sources.resume', { percent: Math.round(resumeAt * 100) })}</span>
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+              </Switch.Content>
+            </Switch>
+            <ProgressBar
+              aria-hidden="true"
+              size="sm"
+              value={Math.round(resumeAt * 100)}
+              className={resume ? '' : 'opacity-40'}
+            >
+              <ProgressBar.Track>
+                <ProgressBar.Fill />
+              </ProgressBar.Track>
+            </ProgressBar>
+          </div>
+        </div>
       )}
       {sources.isPending && (
         <p className="text-muted" role="status">
@@ -182,9 +229,22 @@ export function SourcePicker({
               {t('sources.someFailed', { names: result.sourceErrors.join(', ') })}
             </Chip>
           )}
+          <SourceFilters choices={choices} filters={filters} onChange={setFilters} />
           {result.options.length === 0 && <p className="text-muted">{t('sources.none')}</p>}
+          {result.options.length > 0 && shown.length === 0 && (
+            <div className="flex flex-wrap items-center gap-2" role="status">
+              <p className="text-muted">{t('sources.filters.noMatch')}</p>
+            </div>
+          )}
+          {shown.length > 0 && hasFilters(filters) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-muted" role="status">
+                {t('sources.filters.shown', { shown: shown.length, total: result.options.length })}
+              </p>
+            </div>
+          )}
           <ul className="grid gap-2">
-            {result.options.map((o, i) => (
+            {shown.map((o, i) => (
               <li key={o.id}>
                 <Card variant="default" className="gap-3 border border-border">
                   <Card.Content>
@@ -222,11 +282,11 @@ export function SourcePicker({
                     <Card.Footer className="justify-end">
                       <Button
                         variant="secondary"
-                        isDisabled={enqueue.isPending}
+                        isDisabled={enqueue.isPending || queued}
                         aria-label={t('sources.addToQueue', { n: i + 1 })}
                         onPress={() => enqueue.mutate(o.id)}
                       >
-                        {t('sources.queue')}
+                        {queued ? t('sources.inQueue') : t('sources.queue')}
                       </Button>
                     </Card.Footer>
                   )}
@@ -246,6 +306,7 @@ export function SourcePicker({
           {enqueue.error.message}
         </p>
       )}
+      <QueueCard />
       {phase === 'starting' && (
         <p className="text-muted" role="status">
           {t('sources.waiting')}

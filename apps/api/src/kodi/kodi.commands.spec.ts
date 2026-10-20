@@ -215,6 +215,28 @@ describe('KodiCommands', () => {
       });
     });
 
+    it('reports idle while the Aerials screensaver video plays', async () => {
+      kodi
+        .on('Player.GetActivePlayers', [{ playerid: 1, playertype: 'internal', type: 'video' }])
+        .on('Player.GetProperties', {
+          speed: 1,
+          time: { hours: 0, minutes: 0, seconds: 5, milliseconds: 0 },
+          totaltime: { hours: 0, minutes: 2, seconds: 0, milliseconds: 0 },
+          subtitleenabled: false,
+        })
+        .on('Player.GetItem', {
+          item: {
+            file: 'http://sylvan.apple.com/Aerials/2x/Videos/BO_A014.mov',
+            label: 'BO_A014.mov',
+          },
+        });
+      await expect(commands.getStatus()).resolves.toEqual({
+        active: false,
+        volume: 55,
+        muted: false,
+      });
+    });
+
     it('reports a playing item without leaking the file path', async () => {
       kodi
         .on('Player.GetActivePlayers', [{ playerid: 1, playertype: 'internal', type: 'video' }])

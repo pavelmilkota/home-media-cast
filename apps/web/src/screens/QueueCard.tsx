@@ -1,30 +1,20 @@
 import { Button, Card } from '@heroui/react';
-import type { QueueResponse } from '@home-media-cast/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client.js';
-import { useLive } from '../state/live.js';
+import { useQueue } from '../state/queue.js';
 
 /** What is waiting to play after the current video. Shows nothing while the queue is empty. */
 export function QueueCard() {
   const { t } = useTranslation();
-  const { status } = useLive();
   const client = useQueryClient();
-  // The backend takes an entry off the queue when it starts it, so ask again when the video changes.
-  const playing = status?.active ? status.title : undefined;
-  const queue = useQuery({
-    queryKey: ['queue', playing],
-    queryFn: () => api<QueueResponse>('/queue'),
-    retry: false,
-    staleTime: 0,
-  });
+  const { items } = useQueue();
   const change = useMutation({
     mutationFn: ({ path, method }: { path: string; method: 'POST' | 'DELETE' }) =>
       api(`/queue${path}`, { method }),
     onSettled: () => client.invalidateQueries({ queryKey: ['queue'] }),
   });
 
-  const items = queue.data?.items ?? [];
   if (items.length === 0 && !change.isError) return null;
 
   return (

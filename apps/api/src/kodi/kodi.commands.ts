@@ -51,6 +51,9 @@ export function safeTitle(item: { title?: string; label?: string } | undefined):
   }
 }
 
+/** Kodi's Apple Aerials screensaver plays as an ordinary video player; it is not something the user cast. */
+const AMBIENT_VIDEO = /^https?:\/\/sylvan\.apple\.com\/Aerials\//i;
+
 /**
  * The only operations the backend may perform on Kodi (ADR-0002). The frontend can never
  * pass an arbitrary JSON-RPC method; every method name below is fixed.
@@ -188,10 +191,12 @@ export class KodiCommands {
         'subtitleenabled',
       ],
     });
-    const item = await this.client.request<{ item?: { title?: string; label?: string } }>(
-      'Player.GetItem',
-      { playerid: player.playerid, properties: ['title'] },
-    );
+    const item = await this.client.request<{
+      item?: { title?: string; label?: string; file?: string };
+    }>('Player.GetItem', { playerid: player.playerid, properties: ['title', 'file'] });
+    if (item.item?.file && AMBIENT_VIDEO.test(item.item.file)) {
+      return { active: false, volume: app.volume, muted: app.muted };
+    }
     return {
       active: true,
       playerId: player.playerid,

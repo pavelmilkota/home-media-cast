@@ -19,7 +19,9 @@ export interface ClassifiedResult {
   cached: boolean | null;
   sizeBytes?: number;
   languages?: string[];
+  subtitles?: string[];
   resolution?: string;
+  quality?: string;
   /** Same value across the episodes of one release; used to pick the next episode's source. */
   bingeGroup?: string;
   /** The torrent behind the result; one season pack has the same hash for all its episodes. */
@@ -53,15 +55,17 @@ export function resolutionFromName(name: string): string | undefined {
   return /(?<![0-9a-z])(4k|uhd)(?![0-9a-z])/i.test(name) ? '2160p' : undefined;
 }
 
-function languagesOf(raw: Raw): string[] {
-  const value = parsed(raw, 'languages');
+/** Audio languages are plain names; subtitles are Stremio `{ lang }` objects or plain names. */
+function languagesOf(raw: Raw, key: 'languages' | 'subtitles' = 'languages'): string[] {
+  const value = parsed(raw, key);
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   for (const v of value) {
-    const lang = typeof v === 'string' ? v.trim() : '';
+    const name = v && typeof v === 'object' ? (v as Raw)['lang'] : v;
+    const lang = typeof name === 'string' ? name.trim() : '';
     if (lang && lang.length <= 30) seen.add(lang);
   }
-  return [...seen].slice(0, 6);
+  return [...seen].slice(0, key === 'subtitles' ? 30 : 6);
 }
 
 function headersOf(raw: Raw): Record<string, string> {
@@ -126,6 +130,8 @@ export function classifyResult(input: unknown): ClassifiedResult {
     title: str(raw['filename']) ?? str(raw['folderName']) ?? str(raw['name']) ?? '',
   });
   const languages = languagesOf(raw);
+  const subtitles = languagesOf(raw, 'subtitles');
+  const quality = str(parsed(raw, 'quality'));
   const resolution =
     str(parsed(raw, 'resolution')) ??
     resolutionFromName(str(raw['filename']) ?? str(raw['folderName']) ?? '');
@@ -139,7 +145,9 @@ export function classifyResult(input: unknown): ClassifiedResult {
     cached: typeof raw['cached'] === 'boolean' ? raw['cached'] : null,
     ...(num(raw['size']) !== undefined ? { sizeBytes: num(raw['size']) as number } : {}),
     ...(languages.length ? { languages } : {}),
+    ...(subtitles.length ? { subtitles } : {}),
     ...(resolution && resolution.length <= 12 ? { resolution } : {}),
+    ...(quality && quality.length <= 20 ? { quality } : {}),
     ...(bingeGroup && bingeGroup.length <= 300 ? { bingeGroup } : {}),
     ...(infoHash && INFO_HASH.test(infoHash) ? { infoHash: infoHash.toLowerCase() } : {}),
   };
@@ -195,7 +203,9 @@ export function toOption(id: string, c: ClassifiedResult): StreamOption {
     cached: c.cached,
     ...(c.sizeBytes !== undefined ? { sizeBytes: c.sizeBytes } : {}),
     ...(c.languages ? { languages: c.languages } : {}),
+    ...(c.subtitles ? { subtitles: c.subtitles } : {}),
     ...(c.resolution ? { resolution: c.resolution } : {}),
+    ...(c.quality ? { quality: c.quality } : {}),
     playable,
     ...(c.source.kind === 'unsupported'
       ? { reason: c.source.reason }
