@@ -210,6 +210,7 @@ export const en = {
     cached: 'cached',
     notCached: 'not cached',
     playOnTv: '▶ Play on TV',
+    checkingAudio: 'Checking audio…',
     lastSelected: 'Last selected',
     tryNext: 'Try next source',
     notCachedWarning: 'Not cached: this may start a download on your account. Tap again to play.',

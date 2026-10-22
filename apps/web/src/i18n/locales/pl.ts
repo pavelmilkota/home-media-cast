@@ -214,6 +214,7 @@ export const pl: Messages = {
     cached: 'w pamięci podręcznej',
     notCached: 'poza pamięcią podręczną',
     playOnTv: '▶ Odtwórz na TV',
+    checkingAudio: 'Sprawdzam audio…',
     lastSelected: 'Ostatnio wybrane',
     tryNext: 'Spróbuj następnego źródła',
     notCachedWarning:

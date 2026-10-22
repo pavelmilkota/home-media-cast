@@ -18,6 +18,7 @@ import {
   type QueueResponse,
   type StreamPlayDto,
   type AdjacentEpisodes,
+  type AudioProbeResponse,
   type StreamsCacheCleared,
   type StreamsCacheStats,
   type StreamsResponse,
@@ -54,6 +55,15 @@ export class StreamsController {
       refresh: refresh === '1' || refresh === 'true',
       ...(lastRelease ? { lastRelease } : {}),
     });
+  }
+
+  /**
+   * Reads the real audio tracks of one listed source from the start of its file, and keeps them
+   * so later lists show them at once. 410 when the option id is no longer known.
+   */
+  @Get('streams/options/:id/audio')
+  audio(@Param('id') id: string): Promise<AudioProbeResponse> {
+    return this.streams.probeAudio(id);
   }
 
   /** How many source lists are cached, and how old the oldest is. */

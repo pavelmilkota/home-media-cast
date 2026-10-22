@@ -60,6 +60,18 @@ export const streamCache = sqliteTable('stream_cache', {
   fetchedAt: integer('fetched_at').notNull(),
 });
 
+/**
+ * The audio tracks read from a file's own header, per `audioKey` (a hash of the torrent, file
+ * and name; no link). An empty list means the file was looked at and nothing usable was found.
+ * A cache, safe to delete.
+ */
+export const audioProbe = sqliteTable('audio_probe', {
+  key: text('key').primaryKey(),
+  /** JSON AudioTrack[]. */
+  tracks: text('tracks').notNull(),
+  probedAt: integer('probed_at').notNull(),
+});
+
 /** Small household-wide settings as JSON values, e.g. the audio and subtitle language last chosen. */
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),

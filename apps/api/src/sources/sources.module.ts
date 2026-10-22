@@ -7,6 +7,7 @@ import { loadConfig } from '../config.js';
 import { DbService } from '../db/db.service.js';
 import { KodiService } from '../kodi/kodi.service.js';
 import { RelayService } from '../relay/relay.service.js';
+import { AudioProbeStore } from './audio-probe.store.js';
 import { QueueService } from './queue.service.js';
 import { StreamsCacheStore } from './streams-cache.store.js';
 import { StreamsController } from './streams.controller.js';
@@ -23,15 +24,26 @@ import { WatchPlayService } from './watch-play.service.js';
       useFactory: (db: DbService) => new StreamsCacheStore(db),
     },
     {
+      provide: AudioProbeStore,
+      inject: [DbService],
+      useFactory: (db: DbService) => new AudioProbeStore(db),
+    },
+    {
       provide: StreamsService,
-      inject: [RelayService, KodiService, StreamsCacheStore],
-      useFactory: (relay: RelayService, kodi: KodiService, cache: StreamsCacheStore) => {
+      inject: [RelayService, KodiService, StreamsCacheStore, AudioProbeStore],
+      useFactory: (
+        relay: RelayService,
+        kodi: KodiService,
+        cache: StreamsCacheStore,
+        audio: AudioProbeStore,
+      ) => {
         const { aiostreams } = loadConfig();
         return new StreamsService(
           aiostreams ? new AioStreamsClient(aiostreams) : undefined,
           relay,
           kodi,
           cache,
+          { audio },
         );
       },
     },

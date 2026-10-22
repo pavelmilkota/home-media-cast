@@ -214,6 +214,7 @@ export const ru: Messages = {
     cached: 'в кэше',
     notCached: 'не в кэше',
     playOnTv: '▶ Играть на ТВ',
+    checkingAudio: 'Проверяем аудио…',
     lastSelected: 'Выбран в прошлый раз',
     tryNext: 'Попробовать следующий источник',
     notCachedWarning:

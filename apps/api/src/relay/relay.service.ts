@@ -123,6 +123,49 @@ export class RelayService {
     }
   }
 
+  /**
+   * Reads up to `length` bytes of the source from `start` (shorter at the end of the file), for
+   * looking at a file's header without playing it. The URL goes through the same checks and
+   * redirect handling as playback. A server that ignores `Range` is cut off after `length` bytes,
+   * and one that cannot start in the middle is refused.
+   */
+  async readRange(
+    target: RelayTarget,
+    start: number,
+    length: number,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    try {
+      const url = await this.options.check(target.url);
+      const up = await this.fetchUpstream(
+        { url, ...(target.headers ? { headers: target.headers } : {}) },
+        `bytes=${start}-${start + length - 1}`,
+        signal ?? new AbortController().signal,
+      );
+      if (up.status === 416 || !up.body) {
+        await up.body?.cancel().catch(() => undefined);
+        return Buffer.alloc(0);
+      }
+      if (up.status === 200 && start > 0) {
+        await up.body.cancel().catch(() => undefined);
+        throw new UpstreamError(502, 'Upstream ignores Range');
+      }
+      const chunks: Buffer[] = [];
+      let got = 0;
+      const reader = up.body.getReader();
+      while (got < length) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(Buffer.from(value));
+        got += value.length;
+      }
+      await reader.cancel().catch(() => undefined);
+      return Buffer.concat(chunks).subarray(0, length);
+    } catch {
+      throw new RelayLinkError('unreachable', 'The source did not respond');
+    }
+  }
+
   /** Forgets an id (playback finished or replaced). */
   forget(id: string): void {
     this.entries.delete(id);

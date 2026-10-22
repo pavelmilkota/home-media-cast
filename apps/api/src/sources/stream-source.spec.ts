@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { classifyResult, releaseKey, releaseMatch, toOption } from './stream-source.js';
+import {
+  classifyResult,
+  mayOpenForAudio,
+  releaseKey,
+  releaseMatch,
+  toOption,
+} from './stream-source.js';
 
 const HASH = 'dace3fb370fc9567447fd9b1f19fee787b4d3f17';
 const SECRET = 'SECRET-KEY-123';
@@ -222,5 +228,21 @@ describe('releaseMatch', () => {
     expect(releaseMatch(key, pick({ infoHash: HASH, bingeGroup: 'other' }))).toBe(2);
     expect(releaseMatch(key, pick({ infoHash: 'a'.repeat(40) }))).toBe(1);
     expect(releaseMatch(key, pick({ infoHash: 'a'.repeat(40), languages: ['French'] }))).toBe(0);
+  });
+});
+
+describe('mayOpenForAudio', () => {
+  const direct = { url: 'https://p.example/a.mkv', infoHash: HASH, filename: 'A.mkv' };
+  it.each([
+    ['cached true', { ...direct, cached: true }, true],
+    ['cached true, no service', { ...direct, cached: true, service: undefined }, true],
+    ['cached false', { ...direct, cached: false }, false],
+    ['cached null with a service', { ...direct, service: 'torbox' }, false],
+    ['cached null without a service', direct, false],
+    ['no info hash', { url: direct.url, filename: 'A.mkv', cached: true }, false],
+    ['torrent only', { infoHash: HASH, cached: true }, false],
+    ['external url', { externalUrl: 'https://x.example', infoHash: HASH, cached: true }, false],
+  ])('%s -> %s', (_name, raw, expected) => {
+    expect(mayOpenForAudio(classifyResult(raw))).toBe(expected);
   });
 });

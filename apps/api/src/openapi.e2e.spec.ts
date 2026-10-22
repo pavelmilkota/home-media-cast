@@ -59,6 +59,7 @@ describe('OpenAPI (e2e)', () => {
         '/api/player/subtitle',
         '/api/player/volume',
         '/api/streams/cache',
+        '/api/streams/options/{id}/audio',
         '/api/titles/{type}/{id}/streams',
         '/api/tv/fullscreen',
         '/api/tv/home',

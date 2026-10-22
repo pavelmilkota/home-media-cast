@@ -1,6 +1,11 @@
-import { Button, Card, Chip, ProgressBar, Switch, toast } from '@heroui/react';
-import type { CatalogType, StreamOption, StreamsResponse } from '@home-media-cast/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button, Card, Chip, ProgressBar, Spinner, Switch, toast } from '@heroui/react';
+import type {
+  AudioProbeResponse,
+  CatalogType,
+  StreamOption,
+  StreamsResponse,
+} from '@home-media-cast/shared';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +22,7 @@ import {
 import { useQueue } from '../state/queue.js';
 import { QueueCard } from './QueueCard.js';
 import { useStartWatch } from './use-start-watch.js';
+import { useVisibleIds } from './use-visible-ids.js';
 
 /** Resolving a debrid link can take a while; this is longer than for a plain link. */
 export const SOURCE_START_TIMEOUT_MS = 25_000;
@@ -26,15 +32,29 @@ const size = (bytes?: number) =>
 
 const serviceName: Record<string, string> = { torbox: 'TorBox', realdebrid: 'Real-Debrid' };
 
+/** Whether the file's own audio tracks can be read: only for links marked cached (as the server). */
+const canCheckAudio = (o: StreamOption) =>
+  o.kind === 'direct_url' && o.playable && o.cached === true && !o.audioVerified;
+
+/** What the audio badge shows: the release's claim, a check in progress, or the file's tracks. */
+type AudioState = 'claimed' | 'checking' | 'verified';
+
 /** The facts about a release as small badges: [text, tone]. */
 function badges(
   o: StreamOption,
   t: TFunction,
+  audio: AudioState,
 ): [string, 'accent' | 'default' | 'success' | 'warning'][] {
   const list: [string, 'accent' | 'default' | 'success' | 'warning'][] = [];
   if (o.lastUsed) list.push([t('sources.lastSelected'), 'accent']);
   if (o.resolution) list.push([o.resolution, 'accent']);
-  if (o.languages?.length) list.push([o.languages.join(', '), 'default']);
+  if (o.languages?.length) {
+    list.push(
+      audio === 'verified'
+        ? [`✓ ${o.languages.join(', ')}`, 'success']
+        : [o.languages.join(', '), 'default'],
+    );
+  }
   if (o.service) list.push([serviceName[o.service] ?? o.service, 'default']);
   const bytes = size(o.sizeBytes);
   if (bytes) list.push([bytes, 'default']);
@@ -162,6 +182,30 @@ export function SourcePicker({
     [result?.options, filters],
   );
 
+  // Only the rows on screen read their file's real audio tracks; the languages the release
+  // names stay until the answer arrives. The filters keep using the list's languages, so rows do
+  // not come and go while scrolling; the next load of the list has the verified ones.
+  const { visible, ref: observe } = useVisibleIds();
+  const toCheck = shown.filter((o) => visible.has(o.id) && canCheckAudio(o));
+  const probes = useQueries({
+    queries: toCheck.map((o) => ({
+      queryKey: ['audio', o.id],
+      queryFn: () => api<AudioProbeResponse>(`/streams/options/${encodeURIComponent(o.id)}/audio`),
+      staleTime: Infinity,
+      gcTime: 25 * 60_000,
+      retry: false,
+      refetchOnWindowFocus: false,
+    })),
+    combine: (all) => new Map(toCheck.map((o, i) => [o.id, all[i]] as const)),
+  });
+  const audioOf = (o: StreamOption): { state: AudioState; languages: string[] | undefined } => {
+    if (o.audioVerified) return { state: 'verified', languages: o.languages };
+    const probe = probes.get(o.id);
+    if (probe?.isPending) return { state: 'checking', languages: o.languages };
+    if (probe?.data?.status === 'ok') return { state: 'verified', languages: probe.data.languages };
+    return { state: 'claimed', languages: o.languages };
+  };
+
   return (
     <Card role="region" aria-label={t('sources.title')}>
       {!embedded && (
@@ -267,59 +311,69 @@ export function SourcePicker({
             </div>
           )}
           <ul className="grid gap-2">
-            {shown.map((o, i) => (
-              <li key={o.id}>
-                <Card
-                  variant="default"
-                  className={`gap-3 border ${o.lastUsed ? 'border-2 border-accent bg-accent/10' : 'border-border'}`}
-                  data-last-used={o.lastUsed ? 'true' : undefined}
-                >
-                  <Card.Content>
-                    <Button
-                      variant="secondary"
-                      className="h-auto min-h-12 w-full flex-col items-start justify-start gap-2 rounded-[16px] px-3 py-2 text-left whitespace-normal wrap-anywhere"
-                      isDisabled={!o.playable || busy}
-                      onPress={() => choose(o)}
-                      aria-describedby={`why-${o.id}`}
-                    >
-                      <strong className="text-[0.95rem] leading-snug wrap-anywhere">
-                        {o.title}
-                      </strong>
-                      <span className="flex flex-wrap gap-1.5" id={`why-${o.id}`}>
-                        {badges(o, t).map(([text, color]) => (
-                          <Chip key={text} size="sm" variant="soft" color={color}>
-                            {text}
-                          </Chip>
-                        ))}
-                      </span>
-                      {o.reason && <span className="text-muted">{o.reason}</span>}
-                      {o.playable && (
-                        <span aria-hidden="true" className="text-sm font-medium text-accent">
-                          {t('sources.playOnTv')}
-                        </span>
-                      )}
-                      {confirming === o.id && (
-                        <span role="alert" className="text-danger">
-                          {t('sources.notCachedWarning')}
-                        </span>
-                      )}
-                    </Button>
-                  </Card.Content>
-                  {o.playable && (
-                    <Card.Footer className="justify-end">
+            {shown.map((o, i) => {
+              const audio = audioOf(o);
+              const row = audio.languages ? { ...o, languages: audio.languages } : o;
+              return (
+                <li key={o.id} data-option-id={o.id} ref={observe}>
+                  <Card
+                    variant="default"
+                    className={`gap-3 border ${o.lastUsed ? 'border-2 border-accent bg-accent/10' : 'border-border'}`}
+                    data-last-used={o.lastUsed ? 'true' : undefined}
+                  >
+                    <Card.Content>
                       <Button
                         variant="secondary"
-                        isDisabled={enqueue.isPending || queued}
-                        aria-label={t('sources.addToQueue', { n: i + 1 })}
-                        onPress={() => enqueue.mutate(o.id)}
+                        className="h-auto min-h-12 w-full flex-col items-start justify-start gap-2 rounded-[16px] px-3 py-2 text-left whitespace-normal wrap-anywhere"
+                        isDisabled={!o.playable || busy}
+                        onPress={() => choose(o)}
+                        aria-describedby={`why-${o.id}`}
                       >
-                        {queued ? t('sources.inQueue') : t('sources.queue')}
+                        <strong className="text-[0.95rem] leading-snug wrap-anywhere">
+                          {o.title}
+                        </strong>
+                        <span className="flex flex-wrap gap-1.5" id={`why-${o.id}`}>
+                          {badges(row, t, audio.state).map(([text, color]) => (
+                            <Chip key={text} size="sm" variant="soft" color={color}>
+                              {text}
+                            </Chip>
+                          ))}
+                          {audio.state === 'checking' && (
+                            <Chip size="sm" variant="soft" role="status">
+                              <Spinner size="sm" />
+                              {t('sources.checkingAudio')}
+                            </Chip>
+                          )}
+                        </span>
+                        {o.reason && <span className="text-muted">{o.reason}</span>}
+                        {o.playable && (
+                          <span aria-hidden="true" className="text-sm font-medium text-accent">
+                            {t('sources.playOnTv')}
+                          </span>
+                        )}
+                        {confirming === o.id && (
+                          <span role="alert" className="text-danger">
+                            {t('sources.notCachedWarning')}
+                          </span>
+                        )}
                       </Button>
-                    </Card.Footer>
-                  )}
-                </Card>
-              </li>
-            ))}
+                    </Card.Content>
+                    {o.playable && (
+                      <Card.Footer className="justify-end">
+                        <Button
+                          variant="secondary"
+                          isDisabled={enqueue.isPending || queued}
+                          aria-label={t('sources.addToQueue', { n: i + 1 })}
+                          onPress={() => enqueue.mutate(o.id)}
+                        >
+                          {queued ? t('sources.inQueue') : t('sources.queue')}
+                        </Button>
+                      </Card.Footer>
+                    )}
+                  </Card>
+                </li>
+              );
+            })}
           </ul>
         </>
       )}

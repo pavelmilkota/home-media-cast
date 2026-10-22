@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import type { StreamOption, StreamsCacheStats, StreamsResponse } from '@home-media-cast/shared';
+import type {
+  AudioProbeResponse,
+  AudioTrack,
+  StreamOption,
+  StreamsCacheStats,
+  StreamsResponse,
+} from '@home-media-cast/shared';
 import {
   AioStreamsClient,
   SourceAuthError,
@@ -12,8 +18,12 @@ import {
 import { KodiInvalidUrlError } from '../kodi/kodi.errors.js';
 import type { KodiService } from '../kodi/kodi.service.js';
 import { RelayLinkError, type RelayService } from '../relay/relay.service.js';
+import { UnreadableContainerError, probeAudio, type RangeReader } from './audio-probe.js';
+import type { AudioProbeStore } from './audio-probe.store.js';
 import { StreamsCacheStore } from './streams-cache.store.js';
 import {
+  audioKey,
+  mayOpenForAudio,
   classifyResult,
   releaseKey,
   releaseMatch,
@@ -23,6 +33,22 @@ import {
 
 /** A source link is tried this many times before the phone is told it does not work. */
 const LINK_ATTEMPTS = 2;
+
+/** Files being read for their audio tracks at once; each read goes through the debrid service. */
+const AUDIO_CONCURRENCY = 2;
+/** A file that cannot be read is not tried again for this long (a provider error, not the file). */
+const AUDIO_RETRY_AFTER_MS = 2 * 60_000;
+const AUDIO_TIMEOUT_MS = 12_000;
+/** A header read stays small: requests and bytes per file. */
+const AUDIO_MAX_REQUESTS = 12;
+const AUDIO_MAX_BYTES = 6 * 1024 * 1024;
+
+const UNAVAILABLE: AudioProbeResponse = { status: 'unavailable' };
+
+/** Named languages of the tracks, once each, in file order. */
+const audioLanguages = (tracks: AudioTrack[]): string[] => [
+  ...new Set(tracks.flatMap((t) => (t.language ? [t.language] : []))),
+];
 
 /** The option id is unknown, or older than the time limit. The list must be fetched again. */
 export class OptionExpiredError extends Error {
@@ -56,6 +82,8 @@ export interface StreamsOptions {
   /** Option ids of a served list are minted again after this long (must be below `ttlMs`). */
   remintAfterMs?: number;
   now?: () => number;
+  /** Where the audio tracks read from files are kept; without it files are never read. */
+  audio?: AudioProbeStore;
 }
 
 /** A cached list as served: the options keep their ids until the entry is replaced or re-minted. */
@@ -90,6 +118,12 @@ export class StreamsService {
   private readonly refreshDebounceMs: number;
   private readonly remintAfterMs: number;
   private readonly now: () => number;
+  private readonly audio: AudioProbeStore | undefined;
+  private readonly audioInflight = new Map<string, Promise<AudioProbeResponse>>();
+  /** Per audio key: when a file that failed to read may be tried again. */
+  private readonly audioRetryAt = new Map<string, number>();
+  private audioActive = 0;
+  private readonly audioQueue: (() => void)[] = [];
   /** Per `<type>:<id>`: the list currently served, so polling never touches SQLite or AIOStreams. */
   private readonly served = new Map<string, Served>();
   private readonly inflight = new Map<string, Promise<Served>>();
@@ -109,8 +143,10 @@ export class StreamsService {
       refreshDebounceMs = 15_000,
       remintAfterMs = 20 * 60_000,
       now = Date.now,
+      audio,
     }: StreamsOptions = {},
   ) {
+    this.audio = audio;
     this.ttlMs = ttlMs;
     this.maxOptions = maxOptions;
     this.refreshDebounceMs = refreshDebounceMs;
@@ -155,12 +191,120 @@ export class StreamsService {
   private respond(key: string, served: Served, lastRelease?: string): StreamsResponse {
     const refreshError = this.refreshErrors.get(key);
     return {
-      options: this.flagLast(served.options, lastRelease),
+      options: this.withAudio(this.flagLast(served.options, lastRelease)),
       sourceErrors: served.errors,
       fetchedAt: served.fetchedAt,
       refreshing: this.inflight.has(key),
       ...(refreshError ? { refreshError } : {}),
     };
+  }
+
+  /**
+   * Swaps in the languages already read from a file's own tracks (see `probeAudio`). Applied to the
+   * response only, like `flagLast`: `ClassifiedResult.languages` feeds `releaseKey` and stays as
+   * the source reported it.
+   */
+  private withAudio(options: StreamOption[]): StreamOption[] {
+    if (!this.audio) return options;
+    const keys = new Map<string, string>(); // option id -> audio key
+    for (const o of options) {
+      const classified = this.stored.get(o.id)?.classified;
+      const key = classified?.source.kind === 'direct_url' ? audioKey(classified) : undefined;
+      if (key) keys.set(o.id, key);
+    }
+    if (keys.size === 0) return options;
+    const found = this.audio.getMany([...new Set(keys.values())], this.now());
+    return options.map((o) => {
+      const languages = audioLanguages(found.get(keys.get(o.id) ?? '') ?? []);
+      return languages.length ? { ...o, languages, audioVerified: true } : o;
+    });
+  }
+
+  /**
+   * Reads the audio tracks from the start of the file behind an option and keeps them. The link is
+   * opened only for sources marked cached (see `mayOpenForAudio`); tracks already stored are
+   * returned for any source. Never throws for a file that cannot be read: the answer is
+   * `unavailable` and the list keeps its languages.
+   */
+  async probeAudio(optionId: string): Promise<AudioProbeResponse> {
+    const entry = this.stored.get(optionId);
+    if (!entry || entry.expiresAt < Date.now()) {
+      this.stored.delete(optionId);
+      throw new OptionExpiredError('This source is no longer available; search again');
+    }
+    const { classified } = entry;
+    const key = audioKey(classified);
+    if (!this.audio || !key || classified.source.kind !== 'direct_url') return UNAVAILABLE;
+    const known = this.audio.getMany([key], this.now()).get(key);
+    if (known) return this.audioAnswer(known);
+    if (!mayOpenForAudio(classified)) return UNAVAILABLE;
+    if ((this.audioRetryAt.get(key) ?? 0) > this.now()) return UNAVAILABLE;
+    let run = this.audioInflight.get(key);
+    if (!run) {
+      run = this.readAudio(key, classified).finally(() => this.audioInflight.delete(key));
+      this.audioInflight.set(key, run);
+    }
+    return run;
+  }
+
+  private audioAnswer(tracks: AudioTrack[]): AudioProbeResponse {
+    const languages = audioLanguages(tracks);
+    return languages.length ? { status: 'ok', tracks, languages } : UNAVAILABLE;
+  }
+
+  private async readAudio(key: string, classified: ClassifiedResult): Promise<AudioProbeResponse> {
+    await this.audioSlot();
+    try {
+      // The last check before the first request, whatever path got here.
+      if (!mayOpenForAudio(classified) || classified.source.kind !== 'direct_url') {
+        return UNAVAILABLE;
+      }
+      const { url, headers } = classified.source;
+      const signal = AbortSignal.timeout(AUDIO_TIMEOUT_MS);
+      let requests = 0;
+      let bytes = 0;
+      const read: RangeReader = async (start, length) => {
+        if (++requests > AUDIO_MAX_REQUESTS || bytes + length > AUDIO_MAX_BYTES) {
+          throw new UnreadableContainerError('Too much to read');
+        }
+        const data = await this.relay.readRange(
+          { url, ...(Object.keys(headers).length ? { headers } : {}) },
+          start,
+          length,
+          signal,
+        );
+        bytes += data.length;
+        return data;
+      };
+      const tracks = await probeAudio(read);
+      (this.audio as AudioProbeStore).put(key, tracks, this.now());
+      return this.audioAnswer(tracks);
+    } catch (e) {
+      if (e instanceof UnreadableContainerError) {
+        // The file itself cannot be read this way: remember that, so it is not tried again soon.
+        (this.audio as AudioProbeStore).put(key, [], this.now());
+      } else {
+        this.audioRetryAt.set(key, this.now() + AUDIO_RETRY_AFTER_MS);
+      }
+      return UNAVAILABLE;
+    } finally {
+      this.audioDone();
+    }
+  }
+
+  private audioSlot(): Promise<void> {
+    if (this.audioActive < AUDIO_CONCURRENCY) {
+      this.audioActive++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.audioQueue.push(resolve));
+  }
+
+  private audioDone(): void {
+    const next = this.audioQueue.shift();
+    if (next)
+      next(); // the slot passes to the next waiter
+    else this.audioActive--;
   }
 
   /**

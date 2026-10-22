@@ -83,10 +83,12 @@ describe('stream_cache migration', () => {
     const first = new DbService(path);
     first.onModuleDestroy();
     const raw = new Database(path);
-    raw.exec('DROP TABLE stream_cache; DROP TABLE settings; DROP TABLE last_source');
+    raw.exec(
+      'DROP TABLE stream_cache; DROP TABLE settings; DROP TABLE last_source; DROP TABLE audio_probe',
+    );
     raw
       .prepare(
-        'DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 4)',
+        'DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 5)',
       )
       .run();
     raw.close();
