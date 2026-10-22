@@ -48,6 +48,8 @@ Tested automatically; anything not yet tried by hand is marked ⚠️.
   with a time limit. Every redirect hop goes through the URL check again; custom headers go to
   the first host only; the provider URL is never logged or returned, and the id is masked in
   request logs. ⚠️ unverified: throughput on a real 4K file and a real provider link.
+  The audio probe opens a provider link only for sources marked cached, because opening an
+  uncached link could start a download on the debrid account. ⚠️ unverified against real TorBox.
 - **YouTube links** (`POST /api/playback/youtube`, token required). Only an exact YouTube host
   is accepted (`youtube.com`, `m.`/`www.`/`music.` subdomains, `youtube-nocookie.com`,
   `youtu.be`), no port, no credentials. The backend keeps just the 11-character video id and a
