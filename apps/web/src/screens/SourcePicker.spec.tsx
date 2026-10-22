@@ -503,7 +503,24 @@ describe('real audio tracks', () => {
     expect(backend.calls.filter((c) => c.path.endsWith('/audio'))).toHaveLength(1);
   });
 
-  it('keeps the release’s languages, without a loader, when the file cannot be read', async () => {
+  it('adds the languages read from a file to the audio filter', async () => {
+    backend.on('GET /streams/options/a/audio', {
+      status: 200,
+      body: { status: 'ok', tracks: [], languages: ['Ukrainian', 'Polish'] },
+    });
+    await open();
+    await search();
+    await screen.findByText('Alpha');
+    see('a');
+    await screen.findByText('✓ Ukrainian, Polish');
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+    const audio = within(screen.getByRole('group', { name: 'Audio' }));
+    await userEvent.click(audio.getByRole('button', { name: 'Polish' })); // only the file has it
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(screen.queryByText('Charlie')).not.toBeInTheDocument();
+  });
+
+  it('marks the release’s languages with a red cross when the file cannot be read', async () => {
     backend.on('GET /streams/options/a/audio', { status: 200, body: { status: 'unavailable' } });
     await open();
     await search();
@@ -511,7 +528,7 @@ describe('real audio tracks', () => {
     see('a');
     await waitFor(() => expect(backend.callsTo('GET /streams/options/a/audio')).toHaveLength(1));
     await waitFor(() => expect(screen.queryByText('Checking audio…')).not.toBeInTheDocument());
-    expect(row('Alpha').getByText('English')).toBeInTheDocument();
+    expect(row('Alpha').getByText('✗ English')).toBeInTheDocument();
     expect(row('Alpha').queryByText(/^✓/)).not.toBeInTheDocument();
   });
 

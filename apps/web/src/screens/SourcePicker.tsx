@@ -7,7 +7,7 @@ import type {
 } from '@home-media-cast/shared';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, api } from '../api/client.js';
 import { ageLabel } from '../format.js';
@@ -36,23 +36,26 @@ const serviceName: Record<string, string> = { torbox: 'TorBox', realdebrid: 'Rea
 const canCheckAudio = (o: StreamOption) =>
   o.kind === 'direct_url' && o.playable && o.cached === true && !o.audioVerified;
 
-/** What the audio badge shows: the release's claim, a check in progress, or the file's tracks. */
-type AudioState = 'claimed' | 'checking' | 'verified';
+/** What the audio badge shows: the release's claim, a check in progress, the file's tracks (✓), or the claim after the file could not be read (✗). */
+type AudioState = 'claimed' | 'checking' | 'verified' | 'failed';
 
 /** The facts about a release as small badges: [text, tone]. */
 function badges(
   o: StreamOption,
   t: TFunction,
   audio: AudioState,
-): [string, 'accent' | 'default' | 'success' | 'warning'][] {
-  const list: [string, 'accent' | 'default' | 'success' | 'warning'][] = [];
+): [string, 'accent' | 'default' | 'success' | 'warning' | 'danger'][] {
+  const list: [string, 'accent' | 'default' | 'success' | 'warning' | 'danger'][] = [];
   if (o.lastUsed) list.push([t('sources.lastSelected'), 'accent']);
   if (o.resolution) list.push([o.resolution, 'accent']);
   if (o.languages?.length) {
+    const names = o.languages.join(', ');
     list.push(
       audio === 'verified'
-        ? [`✓ ${o.languages.join(', ')}`, 'success']
-        : [o.languages.join(', '), 'default'],
+        ? [`✓ ${names}`, 'success']
+        : audio === 'failed'
+          ? [`✗ ${names}`, 'danger']
+          : [names, 'default'],
     );
   }
   if (o.service) list.push([serviceName[o.service] ?? o.service, 'default']);
@@ -176,17 +179,19 @@ export function SourcePicker({
   };
   const busy = play.isPending || phase === 'starting';
   const result = sources.data;
-  const choices = useMemo(() => filterChoices(result?.options ?? []), [result?.options]);
-  const shown = useMemo(
-    () => applyFilters(result?.options ?? [], filters),
-    [result?.options, filters],
-  );
+  const all = result?.options ?? [];
 
-  // Only the rows on screen read their file's real audio tracks; the languages the release
-  // names stay until the answer arrives. The filters keep using the list's languages, so rows do
-  // not come and go while scrolling; the next load of the list has the verified ones.
+  // Rows on screen read their file's real audio tracks; the languages the release names stay until
+  // the answer arrives. Once read, the file's languages also drive the audio filter, so a language
+  // the release did not name (or named wrongly) is added or dropped there. A row that was asked for
+  // keeps its query after it is filtered out or scrolled away (the answer is cached).
   const { visible, ref: observe } = useVisibleIds();
-  const toCheck = shown.filter((o) => visible.has(o.id) && canCheckAudio(o));
+  const asked = useRef(new Set<string>());
+  const toCheck = all.filter((o) => {
+    if (!canCheckAudio(o)) return false;
+    if (visible.has(o.id)) asked.current.add(o.id);
+    return asked.current.has(o.id);
+  });
   const probes = useQueries({
     queries: toCheck.map((o) => ({
       queryKey: ['audio', o.id],
@@ -196,15 +201,21 @@ export function SourcePicker({
       retry: false,
       refetchOnWindowFocus: false,
     })),
-    combine: (all) => new Map(toCheck.map((o, i) => [o.id, all[i]] as const)),
+    combine: (results) => new Map(toCheck.map((o, i) => [o.id, results[i]] as const)),
   });
-  const audioOf = (o: StreamOption): { state: AudioState; languages: string[] | undefined } => {
-    if (o.audioVerified) return { state: 'verified', languages: o.languages };
+  const audioOf = (o: StreamOption): AudioState => {
+    if (o.audioVerified) return 'verified';
     const probe = probes.get(o.id);
-    if (probe?.isPending) return { state: 'checking', languages: o.languages };
-    if (probe?.data?.status === 'ok') return { state: 'verified', languages: probe.data.languages };
-    return { state: 'claimed', languages: o.languages };
+    if (probe?.isPending) return 'checking';
+    if (!probe) return 'claimed';
+    return probe.data?.status === 'ok' ? 'verified' : 'failed';
   };
+  const options = all.map((o) => {
+    const probe = probes.get(o.id)?.data;
+    return !o.audioVerified && probe?.status === 'ok' ? { ...o, languages: probe.languages } : o;
+  });
+  const choices = filterChoices(options);
+  const shown = applyFilters(options, filters);
 
   return (
     <Card role="region" aria-label={t('sources.title')}>
@@ -313,7 +324,6 @@ export function SourcePicker({
           <ul className="grid gap-2">
             {shown.map((o, i) => {
               const audio = audioOf(o);
-              const row = audio.languages ? { ...o, languages: audio.languages } : o;
               return (
                 <li key={o.id} data-option-id={o.id} ref={observe}>
                   <Card
@@ -333,12 +343,12 @@ export function SourcePicker({
                           {o.title}
                         </strong>
                         <span className="flex flex-wrap gap-1.5" id={`why-${o.id}`}>
-                          {badges(row, t, audio.state).map(([text, color]) => (
+                          {badges(o, t, audio).map(([text, color]) => (
                             <Chip key={text} size="sm" variant="soft" color={color}>
                               {text}
                             </Chip>
                           ))}
-                          {audio.state === 'checking' && (
+                          {audio === 'checking' && (
                             <Chip size="sm" variant="soft" role="status">
                               <Spinner size="sm" />
                               {t('sources.checkingAudio')}
