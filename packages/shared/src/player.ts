@@ -7,6 +7,15 @@ export interface KodiStream {
   language: string;
 }
 
+/** What the household chose in the catalog, shown above the release's own title. */
+export interface PlayerMedia {
+  name: string;
+  /** Present for an episode. */
+  season?: number;
+  episode?: number;
+  episodeName?: string;
+}
+
 export type PlayerStatus =
   | { active: false; volume: number; muted: boolean }
   | {
@@ -18,6 +27,8 @@ export type PlayerStatus =
       durationMs: number;
       /** Display title only. Never the raw file path, which may carry credentials. */
       title: string;
+      /** The catalog title and episode behind `title`, when the video was started from the catalog. */
+      media?: PlayerMedia;
       audioStreams: KodiStream[];
       currentAudioStream: number | null;
       subtitles: KodiStream[];

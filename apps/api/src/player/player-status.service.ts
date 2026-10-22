@@ -1,5 +1,5 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import type { PlayerEvent, PlayerStatus } from '@home-media-cast/shared';
+import type { PlayerEvent, PlayerMedia, PlayerStatus } from '@home-media-cast/shared';
 import { Observable, Subject } from 'rxjs';
 import { KodiService } from '../kodi/kodi.service.js';
 
@@ -36,6 +36,10 @@ export class PlayerStatusService implements OnModuleInit, OnModuleDestroy {
   private readonly pollIntervalMs: number;
   private readonly debounceMs: number;
   private last: PlayerStatus | undefined;
+  /** The status as Kodi reported it, without `media`. */
+  private raw: PlayerStatus | undefined;
+  /** Applies to the video whose Kodi title is `title`, until something else plays. */
+  private annotation: { media: PlayerMedia; title: string } | undefined;
   private pollTimer: NodeJS.Timeout | undefined;
   private debounceTimer: NodeJS.Timeout | undefined;
   private refreshing = false;
@@ -76,7 +80,7 @@ export class PlayerStatusService implements OnModuleInit, OnModuleDestroy {
     // Publish, don't just remember: if this read lands between a Kodi notification and the
     // debounced refresh, the refresh would see "no change" and SSE clients would never hear it.
     this.publish(status);
-    return status;
+    return this.last ?? status;
   }
 
   /** Emits the current state first, then every change. Unsubscribing stops the polling. */
@@ -89,10 +93,28 @@ export class PlayerStatusService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Names the video now on screen (its Kodi title is `title`); shown as `status.media`. */
+  annotate(media: PlayerMedia, title: string): void {
+    this.annotation = { media, title };
+    if (this.raw) this.publish(this.raw);
+  }
+
+  private withMedia(status: PlayerStatus): PlayerStatus {
+    if (!status.active) {
+      this.annotation = undefined;
+      return status;
+    }
+    return this.annotation?.title === status.title
+      ? { ...status, media: this.annotation.media }
+      : status;
+  }
+
   private publish(status: PlayerStatus): void {
-    if (JSON.stringify(status) === JSON.stringify(this.last)) return;
-    this.last = status;
-    this.subject.next({ type: 'status', data: status });
+    this.raw = status;
+    const next = this.withMedia(status);
+    if (JSON.stringify(next) === JSON.stringify(this.last)) return;
+    this.last = next;
+    this.subject.next({ type: 'status', data: next });
   }
 
   private poll(): void {

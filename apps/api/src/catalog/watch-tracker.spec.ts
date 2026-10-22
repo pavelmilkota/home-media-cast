@@ -45,7 +45,10 @@ describe('WatchTracker', () => {
     subject = new Subject();
     db = new DbService(':memory:');
     library = new LibraryService(db);
-    const player = { stream: () => new Observable<PlayerEvent>((s) => subject.subscribe(s)) };
+    const player = {
+      stream: () => new Observable<PlayerEvent>((s) => subject.subscribe(s)),
+      annotate: vi.fn(),
+    };
     seek = vi.fn(async () => undefined);
     tracker = new WatchTracker(player as unknown as PlayerStatusService, library, seek, {
       saveEveryMs: 5000,

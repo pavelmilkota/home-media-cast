@@ -3,7 +3,7 @@ import type { AdjacentEpisodes } from '@home-media-cast/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client.js';
-import { formatTime } from '../format.js';
+import { episodeLine, formatTime } from '../format.js';
 import { useLive } from '../state/live.js';
 import { CommitSlider } from './CommitSlider.js';
 import { PauseIcon, PlayIcon, StopIcon } from './icons.js';
@@ -63,8 +63,14 @@ export function RemotePanel() {
       <Card>
         <p className="text-muted">{t('remote.nowPlaying')}</p>
         <h2 className="text-xl font-semibold wrap-anywhere">
-          {status.title || t('common.untitled')}
+          {status.media?.name ?? (status.title || t('common.untitled'))}
         </h2>
+        {status.media && episodeLine(status.media) && (
+          <p className="font-medium wrap-anywhere">{episodeLine(status.media)}</p>
+        )}
+        {status.media && status.title && (
+          <p className="text-sm text-muted wrap-anywhere">{status.title}</p>
+        )}
 
         <CommitSlider
           label={t('remote.position')}
