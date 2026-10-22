@@ -204,17 +204,26 @@ export class RelayService {
           throw new UpstreamError(502, 'Redirect to a blocked address');
         });
       const sameOrigin = new URL(url).origin === firstOrigin;
+      // The timeout covers waiting for the answer only. A fetch signal also governs the body, so
+      // a timer left running would cut every stream after `upstreamTimeoutMs`, mid-film.
+      const timeout = new AbortController();
+      const timer = setTimeout(
+        () => timeout.abort(new DOMException('Upstream timed out', 'TimeoutError')),
+        this.upstreamTimeoutMs,
+      );
       const res = await fetch(url, {
         headers: {
           ...(sameOrigin ? target.headers : {}),
           ...(range ? { Range: range } : {}),
         },
         redirect: 'manual',
-        signal: AbortSignal.any([signal, AbortSignal.timeout(this.upstreamTimeoutMs)]),
-      }).catch((e: Error) => {
-        if (signal.aborted) throw e;
-        throw new UpstreamError(e.name === 'TimeoutError' ? 504 : 502, 'Upstream unreachable');
-      });
+        signal: AbortSignal.any([signal, timeout.signal]),
+      })
+        .catch((e: Error) => {
+          if (signal.aborted) throw e;
+          throw new UpstreamError(e.name === 'TimeoutError' ? 504 : 502, 'Upstream unreachable');
+        })
+        .finally(() => clearTimeout(timer));
       if (REDIRECTS.has(res.status)) {
         const location = res.headers.get('location');
         await res.body?.cancel().catch(() => undefined);

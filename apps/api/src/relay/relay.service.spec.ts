@@ -111,6 +111,7 @@ describe('RelayService', () => {
       if (url.pathname === '/loop') return void res.writeHead(302, { location: '/loop' }).end();
       if (url.pathname === '/dead') return void res.writeHead(404).end();
       if (url.pathname === '/boom') return void res.writeHead(500).end();
+      if (url.pathname === '/hang') return; // never answers
       if (url.pathname === '/endless') {
         res.writeHead(200, { 'content-type': 'video/mp4' });
         res.on('close', () => (streamClosed = true));
@@ -227,6 +228,32 @@ describe('RelayService', () => {
     const { id } = await register(`/video?token=${SECRET}`);
     await close(provider);
     expect((await get(id)).status).toBe(502);
+  });
+
+  it('answers 504 when the provider never answers', async () => {
+    const { id } = await register('/hang');
+    expect((await get(id)).status).toBe(504);
+  });
+
+  it('keeps streaming past the upstream timeout once the answer has started', async () => {
+    const { id } = await register('/endless');
+    const outcome = await new Promise<string>((resolve) => {
+      const req = request(
+        { host: '127.0.0.1', port: relayPort, path: `/api/relay/${id}` },
+        (res) => {
+          res.on('data', () => undefined);
+          res.on('close', () => resolve('cut'));
+          setTimeout(() => {
+            res.removeAllListeners('close');
+            req.destroy();
+            resolve('alive');
+          }, 2500); // upstreamTimeoutMs is 1500
+        },
+      );
+      req.on('error', () => undefined);
+      req.end();
+    });
+    expect(outcome).toBe('alive');
   });
 
   describe('preflight', () => {
