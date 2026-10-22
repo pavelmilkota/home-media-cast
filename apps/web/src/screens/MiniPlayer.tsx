@@ -2,6 +2,7 @@ import { Button, Card, ProgressBar } from '@heroui/react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client.js';
+import { episodeLine } from '../format.js';
 import { useLive } from '../state/live.js';
 import { useQueue } from '../state/queue.js';
 import { PauseIcon, PlayIcon } from './icons.js';
@@ -43,7 +44,8 @@ export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
   }
 
   const paused = status.speed === 0;
-  const title = status.title || t('common.untitled');
+  const title = status.media?.name ?? (status.title || t('common.untitled'));
+  const detail = status.media ? episodeLine(status.media) : undefined;
   const percent =
     status.durationMs > 0 ? Math.min(100, (status.positionMs / status.durationMs) * 100) : 0;
 
@@ -66,7 +68,10 @@ export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
         aria-label={t('miniPlayer.nowPlaying', { title })}
         onPress={onOpen}
       >
-        <span className="truncate font-semibold">{title}</span>
+        <span className="flex min-w-0 flex-col items-start">
+          <span className="max-w-full truncate font-semibold">{title}</span>
+          {detail && <span className="max-w-full truncate text-sm text-muted">{detail}</span>}
+        </span>
       </Button>
       <Button
         variant="primary"

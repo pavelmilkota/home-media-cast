@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { WATCHED_AT } from './library.service.js';
-import type { PlayerStatus } from '@home-media-cast/shared';
+import type { PlayerMedia, PlayerStatus } from '@home-media-cast/shared';
 import type { Subscription } from 'rxjs';
 import type { PlayerStatusService } from '../player/player-status.service.js';
 import type { TrackPreferences } from '../player/track-preferences.service.js';
@@ -16,6 +16,13 @@ export interface WatchTrackerOptions {
   /** Delay before the one retry of the resume seek (Kodi may not accept it right at the start). */
   seekRetryMs?: number;
 }
+
+const mediaOf = (item: TrackedItem): PlayerMedia => ({
+  name: item.title.name,
+  ...(item.season !== undefined ? { season: item.season } : {}),
+  ...(item.episode !== undefined ? { episode: item.episode } : {}),
+  ...(item.label ? { episodeName: item.label } : {}),
+});
 
 type Active = Extract<PlayerStatus, { active: true }>;
 
@@ -104,6 +111,7 @@ export class WatchTracker implements OnModuleDestroy {
             if (resumeMs) this.resume(resumeMs);
             applyTracks = this.tracks?.forPlayback();
           }
+          if (!tracking) this.player.annotate(mediaOf(item), s.title);
           tracking = s;
           applyTracks?.(s);
           if (Date.now() - lastSaved >= this.saveEveryMs || s.speed === 0) {

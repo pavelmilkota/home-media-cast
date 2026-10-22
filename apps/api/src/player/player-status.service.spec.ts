@@ -65,6 +65,19 @@ describe('PlayerStatusService', () => {
     sub.unsubscribe();
   });
 
+  it('adds the catalog title to the status of the video it names, and only to that one', async () => {
+    const seen: PlayerEvent[] = [];
+    const sub = service.stream().subscribe((e) => seen.push(e));
+    await service.current();
+    service.annotate({ name: 'Severance', season: 2, episode: 5 }, 'movie.mkv');
+    expect(seen.at(-1)?.data).toMatchObject({ media: { name: 'Severance', season: 2 } });
+    expect(await service.current()).toMatchObject({ media: { name: 'Severance' } });
+
+    service.annotate({ name: 'Other' }, 'something-else.mkv'); // a different video is on screen
+    expect(await service.current()).not.toHaveProperty('media');
+    sub.unsubscribe();
+  });
+
   it('does not read Kodi while nobody listens', async () => {
     const before = kodi.requests.length;
     kodi.notify('Player.OnPause', {});

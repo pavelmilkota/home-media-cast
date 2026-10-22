@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceUnavailableError, type AioStreamsClient } from '../aiostreams/aiostreams.client.js';
 import { DbService } from '../db/db.service.js';
+import { AudioProbeStore } from './audio-probe.store.js';
 import { StreamsCacheStore } from './streams-cache.store.js';
 import { StreamsService } from './streams.service.js';
+import { mkv } from './testing/media-fixtures.js';
 
 const raw = (name: string) => ({
   url: `http://127.0.0.1:1/dl?token=SECRET`,
@@ -177,5 +179,73 @@ describe('StreamsService cache', () => {
     release();
     await settle();
     expect(service.cacheStats()).toEqual({ entries: 0 });
+  });
+});
+
+describe('StreamsService audio probe gate', () => {
+  const FILE = mkv([{ type: 2, codec: 'A_AAC', lang: 'ukr', channels: 2 }]);
+  let db: DbService;
+  let audio: AudioProbeStore;
+  let readRange: ReturnType<typeof vi.fn>;
+
+  const optionIds = async (results: unknown[]) => {
+    const service = new StreamsService(
+      { search: async () => ({ results, errors: [] }) } as unknown as AioStreamsClient,
+      { readRange } as never,
+      {} as never,
+      new StreamsCacheStore(db),
+      { audio },
+    );
+    const res = await service.list('movie', 'tt0111161');
+    return { service, res };
+  };
+  const base = (n: number) => ({
+    url: `http://127.0.0.1:1/${n}?token=SECRET`,
+    infoHash: String(n).repeat(40).slice(0, 40),
+    filename: `F${n}.mkv`,
+  });
+
+  beforeEach(() => {
+    db = new DbService(':memory:');
+    audio = new AudioProbeStore(db);
+    readRange = vi.fn(async (_t: unknown, start: number, length: number) =>
+      FILE.subarray(start, start + length),
+    );
+  });
+  afterEach(() => db.onModuleDestroy());
+
+  it('reads a cached row', async () => {
+    const { service, res } = await optionIds([{ ...base(1), cached: true }]);
+    const out = await service.probeAudio(res.options[0]!.id);
+    expect(out.status).toBe('ok');
+    expect(readRange).toHaveBeenCalled();
+  });
+
+  it('makes no request for cached:false, cached:null or a missing flag', async () => {
+    const { service, res } = await optionIds([
+      { ...base(2), cached: false },
+      { ...base(3), cached: null },
+      { ...base(4) },
+      { ...base(5), service: 'torbox' },
+    ]);
+    for (const o of res.options) {
+      expect(await service.probeAudio(o.id)).toEqual({ status: 'unavailable' });
+    }
+    expect(readRange).not.toHaveBeenCalled();
+  });
+
+  it('still returns tracks already stored for an uncached row', async () => {
+    const { service, res } = await optionIds([{ ...base(6), cached: false }]);
+    const first = await service.list('movie', 'tt0111161');
+    expect(first.options[0]?.audioVerified).toBeUndefined();
+    // Store tracks under the key the service derives for this row.
+    const { audioKey, classifyResult } = await import('./stream-source.js');
+    audio.put(audioKey(classifyResult({ ...base(6), cached: false })) as string, [
+      { language: 'Ukrainian', codec: 'AAC' },
+    ]);
+    const out = await service.probeAudio(res.options[0]!.id);
+    expect(out.status).toBe('ok');
+    expect((await service.list('movie', 'tt0111161')).options[0]?.audioVerified).toBe(true);
+    expect(readRange).not.toHaveBeenCalled();
   });
 });

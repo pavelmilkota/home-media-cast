@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { StreamKind, StreamOption } from '@home-media-cast/shared';
 import { YOUTUBE_VIDEO_ID, safeTitle } from '../kodi/kodi.commands.js';
 
@@ -26,6 +27,8 @@ export interface ClassifiedResult {
   bingeGroup?: string;
   /** The torrent behind the result; one season pack has the same hash for all its episodes. */
   infoHash?: string;
+  /** Which file of the torrent; with `infoHash` and the file name it names one episode. */
+  fileIdx?: number;
 }
 
 type Raw = Record<string, unknown>;
@@ -150,7 +153,30 @@ export function classifyResult(input: unknown): ClassifiedResult {
     ...(quality && quality.length <= 20 ? { quality } : {}),
     ...(bingeGroup && bingeGroup.length <= 300 ? { bingeGroup } : {}),
     ...(infoHash && INFO_HASH.test(infoHash) ? { infoHash: infoHash.toLowerCase() } : {}),
+    ...(num(raw['fileIdx']) !== undefined ? { fileIdx: num(raw['fileIdx']) as number } : {}),
   };
+}
+
+/**
+ * What the audio tracks of a result are cached under: the torrent, the file inside it and its
+ * name. Never the link (temporary, ADR-0005) or an option id (minted again on every refresh).
+ * Undefined when the result does not name its torrent.
+ */
+export function audioKey(c: ClassifiedResult): string | undefined {
+  if (!c.infoHash) return undefined;
+  return createHash('sha256')
+    .update(JSON.stringify([c.infoHash, c.fileIdx ?? null, c.title, c.sizeBytes ?? null]))
+    .digest('hex');
+}
+
+/**
+ * Whether opening the link to read the file's header is safe. An uncached torrent could start a
+ * download on the debrid account, which needs the user's confirmation (see `play`), so only a
+ * result marked cached is opened; an unknown flag counts as not cached. Showing tracks that are
+ * already stored needs no such check (reading them opens nothing).
+ */
+export function mayOpenForAudio(c: ClassifiedResult): boolean {
+  return c.source.kind === 'direct_url' && audioKey(c) !== undefined && c.cached === true;
 }
 
 /** What identifies a source across episodes; opaque outside this file and stays in the backend. */

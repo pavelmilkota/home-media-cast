@@ -15,8 +15,13 @@ export interface StreamOption {
   /** `null` when the source does not say. Uncached torrents need an explicit action to start. */
   cached: boolean | null;
   sizeBytes?: number;
-  /** Audio languages the source reports, as AIOStreams names them ("Ukrainian", "English"). */
+  /**
+   * Audio languages, as AIOStreams names them ("Ukrainian", "English"). What the source reports,
+   * until the file itself was read: then these are its real tracks and `audioVerified` is set.
+   */
   languages?: string[];
+  /** `languages` come from the audio tracks of the file, not from the release name. */
+  audioVerified?: true;
   /** Subtitle languages the source offers, named like `languages`. */
   subtitles?: string[];
   /** "1080p", "2160p"… as reported. */
@@ -29,6 +34,24 @@ export interface StreamOption {
   /** The source played last for this title or episode; listed first. At most one option. */
   lastUsed?: true;
 }
+
+/** One audio track read from the file's own header. */
+export interface AudioTrack {
+  /** English name ("Ukrainian"); absent when the file leaves the language unset. */
+  language?: string;
+  /** "AAC", "AC3", "E-AC3", "DTS", "TrueHD"... */
+  codec?: string;
+  channels?: number;
+  /** The track's own title, e.g. "Ukrainian 5.1 (Dubbing)"; cut to a short length. */
+  title?: string;
+}
+
+/**
+ * `GET /streams/options/:id/audio`. `unavailable` covers every reason the file could not be read
+ * (not cached, unknown container, provider error); the list keeps the languages it already has.
+ */
+export type AudioProbeResponse =
+  { status: 'ok'; tracks: AudioTrack[]; languages: string[] } | { status: 'unavailable' };
 
 export type TitleType = 'movie' | 'series';
 

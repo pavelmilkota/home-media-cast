@@ -428,3 +428,117 @@ describe('queue on Home', () => {
     expect(screen.queryByText('Up next')).toBeNull();
   });
 });
+
+describe('real audio tracks', () => {
+  /** Records what is observed; the test says which rows are on screen. */
+  class FakeObserver {
+    static all: FakeObserver[] = [];
+    readonly targets = new Set<Element>();
+    constructor(private readonly callback: IntersectionObserverCallback) {
+      FakeObserver.all.push(this);
+    }
+    observe = (el: Element) => void this.targets.add(el);
+    unobserve = (el: Element) => void this.targets.delete(el);
+    disconnect = () => this.targets.clear();
+    takeRecords = () => [];
+    see(id: string, isIntersecting: boolean) {
+      const target = [...this.targets].find((el) => (el as HTMLElement).dataset['optionId'] === id);
+      if (!target) throw new Error(`row ${id} is not observed`);
+      act(() =>
+        this.callback([{ target, isIntersecting } as IntersectionObserverEntry], this as never),
+      );
+    }
+  }
+  const see = (id: string, on = true) => FakeObserver.all.at(-1)!.see(id, on);
+  const row = (title: string) => within(screen.getByText(title).closest('li')!);
+
+  beforeEach(() => {
+    FakeObserver.all = [];
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    backend.on('GET /titles/movie/tt0111161/streams', {
+      status: 200,
+      body: {
+        ...OPTIONS,
+        options: [
+          option({ id: 'a', title: 'Alpha', languages: ['English'] }),
+          option({ id: 'b', title: 'Bravo', cached: false, languages: ['English'] }),
+          option({ id: 'c', title: 'Charlie', languages: ['Ukrainian'], audioVerified: true }),
+          option({ id: 'd', title: 'Delta', cached: null, languages: ['English'] }),
+        ],
+      } satisfies StreamsResponse,
+    });
+  });
+
+  it('checks only the rows on screen, shows a loader meanwhile, then the real languages', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/audio')) await gate;
+      return real(input, init);
+    });
+    backend.on('GET /streams/options/a/audio', {
+      status: 200,
+      body: { status: 'ok', tracks: [], languages: ['Ukrainian', 'Polish'] },
+    });
+    await open();
+    await search();
+    await screen.findByText('Alpha');
+    expect(backend.callsTo('GET /streams/options/a/audio')).toHaveLength(0);
+
+    see('a'); // nothing is asked for until the row has stayed in view
+    expect(backend.callsTo('GET /streams/options/a/audio')).toHaveLength(0);
+    expect(await screen.findByText('Checking audio…')).toBeInTheDocument();
+    expect(row('Alpha').getByText('English')).toBeInTheDocument(); // the claim stays meanwhile
+
+    release();
+    expect(await screen.findByText('✓ Ukrainian, Polish')).toBeInTheDocument();
+    expect(screen.queryByText('Checking audio…')).not.toBeInTheDocument();
+    expect(row('Alpha').queryByText('English')).not.toBeInTheDocument();
+    // Rows that are not cached, have no cached flag, or are already verified are never asked for.
+    see('b');
+    see('c');
+    see('d');
+    await screen.findByText('✓ Ukrainian');
+    expect(backend.calls.filter((c) => c.path.endsWith('/audio'))).toHaveLength(1);
+  });
+
+  it('adds the languages read from a file to the audio filter', async () => {
+    backend.on('GET /streams/options/a/audio', {
+      status: 200,
+      body: { status: 'ok', tracks: [], languages: ['Ukrainian', 'Polish'] },
+    });
+    await open();
+    await search();
+    await screen.findByText('Alpha');
+    see('a');
+    await screen.findByText('✓ Ukrainian, Polish');
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+    const audio = within(screen.getByRole('group', { name: 'Audio' }));
+    await userEvent.click(audio.getByRole('button', { name: 'Polish' })); // only the file has it
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(screen.queryByText('Charlie')).not.toBeInTheDocument();
+  });
+
+  it('marks the release’s languages with a red cross when the file cannot be read', async () => {
+    backend.on('GET /streams/options/a/audio', { status: 200, body: { status: 'unavailable' } });
+    await open();
+    await search();
+    await screen.findByText('Alpha');
+    see('a');
+    await waitFor(() => expect(backend.callsTo('GET /streams/options/a/audio')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText('Checking audio…')).not.toBeInTheDocument());
+    expect(row('Alpha').getByText('✗ English')).toBeInTheDocument();
+    expect(row('Alpha').queryByText(/^✓/)).not.toBeInTheDocument();
+  });
+
+  it('does not ask for a row that left the screen before the pause', async () => {
+    await open();
+    await search();
+    await screen.findByText('Alpha');
+    see('a');
+    see('a', false);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(backend.callsTo('GET /streams/options/a/audio')).toHaveLength(0);
+  });
+});

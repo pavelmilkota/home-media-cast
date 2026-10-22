@@ -1,3 +1,4 @@
+import type { PlayerMedia } from '@home-media-cast/shared';
 import { i18n } from './i18n/index.js';
 
 /** 75_000 -> "1:15", 3_725_000 -> "1:02:05". */
@@ -43,4 +44,11 @@ export function guessDeviceName(userAgent = navigator.userAgent): string {
   if (/Mac OS X/i.test(userAgent)) return i18n.t('device.mac');
   if (/Linux/i.test(userAgent)) return i18n.t('device.linux');
   return i18n.t('device.other');
+}
+
+/** "S2E5 · Episode name" for an episode, undefined for a film. */
+export function episodeLine(media: PlayerMedia): string | undefined {
+  if (media.season === undefined) return undefined;
+  const code = `S${media.season}E${media.episode ?? '?'}`;
+  return media.episodeName ? `${code} · ${media.episodeName}` : code;
 }

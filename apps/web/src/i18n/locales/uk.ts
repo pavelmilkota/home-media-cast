@@ -214,6 +214,7 @@ export const uk: Messages = {
     cached: 'у кеші',
     notCached: 'не в кеші',
     playOnTv: '▶ Грати на ТБ',
+    checkingAudio: 'Перевіряємо аудіо…',
     lastSelected: 'Обрано минулого разу',
     tryNext: 'Спробувати наступне джерело',
     notCachedWarning:

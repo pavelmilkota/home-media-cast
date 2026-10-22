@@ -43,6 +43,13 @@
       "when": 1792521942790,
       "tag": "0005_last_source",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792685330979,
+      "tag": "0006_audio_probe",
+      "breakpoints": true
     }
   ]
 }

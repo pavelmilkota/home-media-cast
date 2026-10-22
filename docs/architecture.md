@@ -30,6 +30,29 @@ phone / tablet ──HTTP :8787──▶  API (NestJS) ──WebSocket 127.0.0.1
 - `apps/api/src/tv` — `POST /api/tv/fullscreen|home|restart-kodi` (ADR-0008).
 - `packages/shared` — types and Zod schemas used by both; the same schemas generate the
   OpenAPI request bodies.
+- **Verified audio** (`apps/api/src/sources/audio-probe.ts`, `GET /api/streams/options/:id/audio`).
+  The languages in the source list come from AIOStreams, which guesses them from the release
+  name. The picker therefore asks for the file's real audio tracks, but only for the rows on
+  screen (an `IntersectionObserver` with a 300 ms pause, so a fast scroll asks for nothing); until
+  the answer arrives the row shows the release's languages and a "Checking audio…" chip, and a
+  verified row shows `✓ <languages>`. The backend reads the start of the file through ranged
+  requests (`RelayService.readRange`: same URL check and redirect handling as playback, at most 12
+  requests and 6 MiB per file, 12 s, two files at once) and parses the Matroska `Tracks` element or
+  the MP4 `moov` box; the file is never downloaded. It is only done for `direct_url` sources that
+  name their torrent and have `cached === true` (an unknown flag counts as not cached; the age of
+  the list the flag came from is not checked), checked again right before the first request,
+  because opening the link of an uncached torrent could start a download on the debrid account
+  (the picker asks for confirmation before playing one). Languages already stored for a file are
+  shown on any row, since reading them opens nothing. ⚠️ unverified against real TorBox. Answers are kept in SQLite (`audio_probe`, keyed by a hash of the info hash, file index,
+  file name and size, never by the link or the option id): 180 days, or 7 days when nothing usable
+  was found, at most 5000 rows. A provider error is only remembered for 2 minutes. Later lists
+  carry the verified languages (`audioVerified`) at once. They are applied to the response only,
+  not to the stored result, so the release key used for "same release" matching does not change.
+  The language filters keep using the list's languages: a row that was just verified does not
+  appear or disappear under an active filter until the list is loaded again. A file whose tracks
+  have no language set keeps the release's languages. AVI, TS and other containers are not read.
+  ⚠️ unverified against real TorBox links: covered by unit tests on generated MKV/MP4 bytes and an
+  end-to-end test with a fake provider.
 - **Source list cache** (`apps/api/src/sources`). The raw AIOStreams
   answer for a title is kept in SQLite (`stream_cache`, key `<type>:<id>`, one row per movie or
   episode), so the source picker opens without waiting for a search. It is
