@@ -30,7 +30,7 @@
     "@swc/core": "1.16.18",
     "@types/better-sqlite3": "9.6.0",
     "@types/express": "5.0.6",
-    "@types/node": "^24.19.2",
+    "@types/node": "^25.9.9",
     "@types/ws": "8.18.2",
     "drizzle-kit": "0.31.11",
     "unplugin-swc": "2.0.0",
