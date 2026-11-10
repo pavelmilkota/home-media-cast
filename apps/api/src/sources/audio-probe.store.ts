@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AudioTrack } from '@home-media-cast/shared';
+import type { AudioTrack, VideoFacts } from '@home-media-cast/shared';
 import { asc, count, eq, inArray, lt } from 'drizzle-orm';
 import { DbService } from '../db/db.service.js';
 import { audioProbe } from '../db/schema.js';
@@ -18,7 +18,15 @@ export class AudioProbeStore {
 
   /** The tracks stored for each key that has a fresh row (an empty list is a real answer). */
   getMany(keys: string[], now = Date.now()): Map<string, AudioTrack[]> {
-    const found = new Map<string, AudioTrack[]>();
+    return new Map([...this.getFacts(keys, now)].map(([key, f]) => [key, f.tracks]));
+  }
+
+  /** Tracks and video facts per key; `video` is absent on rows from before video was read. */
+  getFacts(
+    keys: string[],
+    now = Date.now(),
+  ): Map<string, { tracks: AudioTrack[]; video?: VideoFacts }> {
+    const found = new Map<string, { tracks: AudioTrack[]; video?: VideoFacts }>();
     for (let i = 0; i < keys.length; i += CHUNK) {
       const rows = this.db.orm
         .select()
@@ -30,7 +38,9 @@ export class AudioProbeStore {
           const tracks: unknown = JSON.parse(row.tracks);
           if (!Array.isArray(tracks)) throw new TypeError('not an array');
           const maxAge = tracks.length ? TRACKS_MAX_AGE_MS : EMPTY_MAX_AGE_MS;
-          if (now - row.probedAt <= maxAge) found.set(row.key, tracks as AudioTrack[]);
+          if (now - row.probedAt > maxAge) continue;
+          const video = row.video ? (JSON.parse(row.video) as VideoFacts) : undefined;
+          found.set(row.key, { tracks: tracks as AudioTrack[], ...(video ? { video } : {}) });
         } catch {
           this.db.orm.delete(audioProbe).where(eq(audioProbe.key, row.key)).run();
         }
@@ -39,8 +49,12 @@ export class AudioProbeStore {
     return found;
   }
 
-  put(key: string, tracks: AudioTrack[], now = Date.now()): void {
-    const values = { tracks: JSON.stringify(tracks), probedAt: now };
+  put(key: string, tracks: AudioTrack[], now = Date.now(), video?: VideoFacts): void {
+    const values = {
+      tracks: JSON.stringify(tracks),
+      probedAt: now,
+      video: video ? JSON.stringify(video) : null,
+    };
     this.db.orm
       .insert(audioProbe)
       .values({ key, ...values })

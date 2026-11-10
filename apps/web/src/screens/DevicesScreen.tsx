@@ -37,6 +37,11 @@ export function DevicesScreen() {
           <li key={d.id} className="flex items-center justify-between gap-3">
             <div>
               <strong>{d.name}</strong>{' '}
+              {d.kind === 'guest' && (
+                <Chip size="sm" variant="soft" color="warning">
+                  {t('devices.guest')}
+                </Chip>
+              )}{' '}
               {d.current && (
                 <Chip size="sm" variant="soft">
                   {t('devices.thisDevice')}

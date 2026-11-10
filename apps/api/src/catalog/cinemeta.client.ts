@@ -61,8 +61,29 @@ export const isImdbId = (id: string): boolean => ID.test(id);
 const imageUrl = (v: unknown): string | undefined =>
   typeof v === 'string' && /^https:\/\//i.test(v) && v.length < 500 ? v : undefined;
 
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/**
+ * Cinemeta passes some text through HTML-escaped ("Chris O&apos;Dowd"). React prints text as it
+ * is, so entities are decoded here. Only to characters: nothing is ever rendered as HTML.
+ */
+export const decodeEntities = (v: string): string =>
+  v.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,6});/gi, (whole, code: string) => {
+    if (code[0] !== '#') return ENTITIES[code.toLowerCase()] ?? whole;
+    const n =
+      code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : Number(code.slice(1));
+    return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
+  });
+
 const text = (v: unknown, max = 2000): string | undefined =>
-  typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined;
+  typeof v === 'string' && v.trim() ? decodeEntities(v.trim()).slice(0, max) : undefined;
 
 const Hit = z.object({
   id: z.string(),
@@ -175,7 +196,7 @@ export class CinemetaClient {
       hits.push({
         id,
         type,
-        name: h.data.name.slice(0, 200),
+        name: decodeEntities(h.data.name).slice(0, 200),
         ...opt('year', text(h.data.releaseInfo ?? h.data.year, 20)),
         ...opt('poster', imageUrl(h.data.poster)),
       });
@@ -217,7 +238,7 @@ export class CinemetaClient {
     return {
       id,
       type,
-      name: m.name.slice(0, 200),
+      name: decodeEntities(m.name).slice(0, 200),
       ...opt('year', text(m.releaseInfo ?? m.year, 20)),
       ...opt('poster', imageUrl(m.poster)),
       ...opt('background', imageUrl(m.background)),
@@ -225,8 +246,8 @@ export class CinemetaClient {
       ...opt('description', text(m.description)),
       ...opt('rating', text(m.imdbRating, 10)),
       ...opt('runtime', text(m.runtime, 30)),
-      genres: (m.genres ?? []).slice(0, 8).map((g) => g.slice(0, 40)),
-      cast: (m.cast ?? []).slice(0, 8).map((g) => g.slice(0, 80)),
+      genres: (m.genres ?? []).slice(0, 8).map((g) => decodeEntities(g).slice(0, 40)),
+      cast: (m.cast ?? []).slice(0, 8).map((g) => decodeEntities(g).slice(0, 80)),
       videos,
     };
   }

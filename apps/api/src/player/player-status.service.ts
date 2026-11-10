@@ -1,5 +1,10 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import type { PlayerEvent, PlayerMedia, PlayerStatus } from '@home-media-cast/shared';
+import type {
+  BrowserStatus,
+  PlayerEvent,
+  PlayerMedia,
+  PlayerStatus,
+} from '@home-media-cast/shared';
 import { Observable, Subject } from 'rxjs';
 import { KodiService } from '../kodi/kodi.service.js';
 
@@ -36,6 +41,7 @@ export class PlayerStatusService implements OnModuleInit, OnModuleDestroy {
   private readonly pollIntervalMs: number;
   private readonly debounceMs: number;
   private last: PlayerStatus | undefined;
+  private lastBrowser: BrowserStatus | undefined;
   /** The status as Kodi reported it, without `media`. */
   private raw: PlayerStatus | undefined;
   /** Applies to the video whose Kodi title is `title`, until something else plays. */
@@ -88,9 +94,17 @@ export class PlayerStatusService implements OnModuleInit, OnModuleDestroy {
     return new Observable<PlayerEvent>((subscriber) => {
       subscriber.next({ type: 'kodi', data: this.kodi.health() });
       if (this.last) subscriber.next({ type: 'status', data: this.last });
+      if (this.lastBrowser?.active) subscriber.next({ type: 'browser', data: this.lastBrowser });
       this.scheduleRefresh();
       return this.subject.subscribe(subscriber);
     });
+  }
+
+  /** What plays in a browser, for every device's mini-player. */
+  setBrowser(status: BrowserStatus): void {
+    if (JSON.stringify(status) === JSON.stringify(this.lastBrowser)) return;
+    this.lastBrowser = status;
+    this.subject.next({ type: 'browser', data: status });
   }
 
   /** Names the video now on screen (its Kodi title is `title`); shown as `status.media`. */

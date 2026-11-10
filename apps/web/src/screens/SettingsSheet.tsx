@@ -1,11 +1,14 @@
 import { Button, Card, Drawer } from '@heroui/react';
 import { useMutation } from '@tanstack/react-query';
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useDeviceKind } from '../api/auth.js';
 import { api } from '../api/client.js';
 import { LOCALES, LOCALE_NAMES, language, useLanguage } from '../state/language.js';
 import { useLive } from '../state/live.js';
+import { useTvAccess } from '../state/use-tv-access.js';
 import { ACCENTS, theme, useAccent } from '../state/theme.js';
 import { sheet } from './ui.js';
 import { CommitSlider } from './CommitSlider.js';
@@ -33,7 +36,12 @@ export function SettingsSheet({
   const { t } = useTranslation();
   const lang = useLanguage();
   const { status } = useLive();
+  // A guest gets language, theme, external player and a way to pair; the rest is the TV's or the household's.
+  const guest = useDeviceKind() === 'guest';
+  const tvAccess = useTvAccess();
   const accent = useAccent();
+  const navigate = useNavigate();
+  const sheetPush = useLocation({ select: (l) => l.state.sheetPush === true });
   const [confirmRestart, setConfirmRestart] = useState(false);
   const tv = useMutation({
     mutationFn: (action: 'fullscreen' | 'home' | 'screensaver' | 'restart-kodi') =>
@@ -57,7 +65,25 @@ export function SettingsSheet({
           </Drawer.Header>
           <Drawer.Body>
             <div className={sheet}>
-              {status && (
+              {guest && (
+                <Card>
+                  <Card.Title>{t('settings.pair')}</Card.Title>
+                  <p className="text-sm text-muted">
+                    {tvAccess.state === 'unavailable'
+                      ? t('tvGate.kodiDown')
+                      : t('settings.pairHint')}
+                  </p>
+                  <Button
+                    variant="primary"
+                    className="self-start"
+                    isDisabled={tvAccess.state === 'unavailable'}
+                    onPress={tvAccess.guard(() => undefined)}
+                  >
+                    {t('settings.pairButton')}
+                  </Button>
+                </Card>
+              )}
+              {!guest && status && (
                 <Card>
                   <CommitSlider
                     label={t('settings.volume')}
@@ -74,60 +100,62 @@ export function SettingsSheet({
                   )}
                 </Card>
               )}
-              <Card>
-                <Card.Title>{t('settings.tv')}</Card.Title>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    isDisabled={tv.isPending}
-                    onPress={() => tv.mutate('home')}
-                  >
-                    {t('settings.kodiHome')}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    isDisabled={tv.isPending}
-                    onPress={() => tv.mutate('fullscreen')}
-                  >
-                    {t('settings.toggleFullscreen')}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    isDisabled={tv.isPending}
-                    onPress={() => tv.mutate('screensaver')}
-                  >
-                    {t('settings.startScreensaver')}
-                  </Button>
-                </div>
-                {confirmRestart ? (
+              {!guest && (
+                <Card>
+                  <Card.Title>{t('settings.tv')}</Card.Title>
                   <div className="flex flex-wrap gap-2">
                     <Button
-                      variant="danger-soft"
+                      variant="secondary"
                       isDisabled={tv.isPending}
-                      onPress={() => tv.mutate('restart-kodi')}
+                      onPress={() => tv.mutate('home')}
                     >
-                      {t('settings.confirmRestart')}
+                      {t('settings.kodiHome')}
                     </Button>
-                    <Button variant="secondary" onPress={() => setConfirmRestart(false)}>
-                      {t('settings.cancelRestart')}
+                    <Button
+                      variant="secondary"
+                      isDisabled={tv.isPending}
+                      onPress={() => tv.mutate('fullscreen')}
+                    >
+                      {t('settings.toggleFullscreen')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      isDisabled={tv.isPending}
+                      onPress={() => tv.mutate('screensaver')}
+                    >
+                      {t('settings.startScreensaver')}
                     </Button>
                   </div>
-                ) : (
-                  <Button variant="secondary" onPress={() => setConfirmRestart(true)}>
-                    {t('settings.restartKodi')}
-                  </Button>
-                )}
-                {tv.isSuccess && tv.data === 'restart-kodi' && (
-                  <p className="text-muted" role="status">
-                    {t('settings.restartRequested')}
-                  </p>
-                )}
-                {tv.isError && (
-                  <p role="alert" className="text-danger">
-                    {tv.error.message}
-                  </p>
-                )}
-              </Card>
+                  {confirmRestart ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="danger-soft"
+                        isDisabled={tv.isPending}
+                        onPress={() => tv.mutate('restart-kodi')}
+                      >
+                        {t('settings.confirmRestart')}
+                      </Button>
+                      <Button variant="secondary" onPress={() => setConfirmRestart(false)}>
+                        {t('settings.cancelRestart')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="secondary" onPress={() => setConfirmRestart(true)}>
+                      {t('settings.restartKodi')}
+                    </Button>
+                  )}
+                  {tv.isSuccess && tv.data === 'restart-kodi' && (
+                    <p className="text-muted" role="status">
+                      {t('settings.restartRequested')}
+                    </p>
+                  )}
+                  {tv.isError && (
+                    <p role="alert" className="text-danger">
+                      {tv.error.message}
+                    </p>
+                  )}
+                </Card>
+              )}
               <Card>
                 <Card.Title>{t('settings.accent')}</Card.Title>
                 <div
@@ -179,8 +207,21 @@ export function SettingsSheet({
                   ))}
                 </div>
               </Card>
-              <SourceCacheCard />
-              <DevicesScreen />
+              {!guest && (
+                <Card>
+                  <Button
+                    variant="secondary"
+                    className="self-start"
+                    // The sheet's own history entry is replaced, so Back from the page goes to
+                    // where the sheet was opened, not to a reopened sheet.
+                    onPress={() => void navigate({ to: '/logs', replace: sheetPush })}
+                  >
+                    {t('settings.logs')}
+                  </Button>
+                </Card>
+              )}
+              {!guest && <SourceCacheCard />}
+              {!guest && <DevicesScreen />}
             </div>
           </Drawer.Body>
         </Drawer.Dialog>

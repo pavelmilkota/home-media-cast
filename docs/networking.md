@@ -5,6 +5,7 @@
 | **8787/tcp** | the API container (host network) | the LAN, via ufw | API, SSE, OpenAPI and the web UI. `PORT` changes it. |
 | 3100/tcp | YouTube Cast receiver (DIAL) | the LAN, via ufw | only while YouTube casting is on. `YOUTUBE_DIAL_PORT` changes it. |
 | 1900/udp | YouTube Cast receiver (SSDP) | the LAN, via ufw | discovery for the Cast menu; fixed by SSDP |
+| 8787/tcp, `/api/media/*` | the API container | the LAN | HLS segments of a browser playback session. No token: the random session id in the path is the capability (ADR-0009). Same port, so no new ufw rule. |
 | 9090/tcp | Kodi JSON-RPC | **this machine only** | no authentication; binds to `127.0.0.1` |
 | 8080/tcp | Kodi web server | nobody | disabled |
 

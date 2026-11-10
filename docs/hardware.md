@@ -61,3 +61,18 @@ The NUC7PJYH cannot promise it (above). Candidates, none bought or tried:
 - Whether Kodi 21 on a desktop Linux or LibreELEC is better on Gemini Lake (HDR needs GBM, no desktop).
   LibreELEC would replace the desktop + Flatpak setup; check against ADR-0001 first.
 - Audio: through the display, or a separate receiver (passthrough)?
+
+## Browser playback on this host (change `browser-playback-handoff`)
+
+Copying video costs little CPU. Converting video the browser cannot decode (HEVC 10-bit on most
+phones, up to 1080p) needs the GPU or a lot of CPU.
+
+- **Dell i7-6820HQ (HD 530):** VAAPI H.264 encode works in the container; HEVC Main decode is in
+  hardware but HEVC 10-bit is not, so `TRANSCODE_HW_DECODE=false` (software decode, GPU encode).
+  The GPU-decode path (`scale_vaapi`) fails here ("requested VAProfile is not supported").
+- **NUC7PJYH (J5005, 8 GB):** the GPU should decode HEVC 10-bit, so use `TRANSCODE_HW_DECODE=true`;
+  its CPU is unlikely to manage software decoding or `libx264`. ⚠️ unverified: after the move, repeat
+  the transcode rows of the spike notes there (speed, tone mapping, memory against 8 GB, and
+  `TRANSCODE_TMPFS_SIZE`, since `/tmp` is RAM). Below 1.1× real time, set `TRANSCODE=off`; those
+  sources then show "TV only" with "Open in player". Record the result here.
+- Real-time speed and CPU numbers have **not** been measured yet.

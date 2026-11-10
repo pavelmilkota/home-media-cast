@@ -84,3 +84,22 @@ If the directory is missing or not writable the button reports an error instead 
 "requested". The script starts Kodi with `DISPLAY` (default `:0`) and `WAYLAND_DISPLAY` from
 the service environment; ⚠️ unverified on the real host, including whether Kodi comes up on
 the projector this way.
+
+## Kodi log on the Logs page (Settings → Logs)
+
+The Kodi tab shows the end of `kodi.log`, so the cause of a stopped video is visible without
+SSH. Kodi has no JSON-RPC method for its log, so the container reads the file from a read-only
+mount of the log directory. For the flatpak that is
+`~/.var/app/tv.kodi.Kodi/data/temp` (Kodi keeps the previous log as `kodi.old.log` after a
+restart; only the current one is read).
+
+```bash
+# In .env (the directory, not the file, so Kodi's rotation does not leave a stale mount):
+# KODI_LOG_DIR=/home/<you>/.var/app/tv.kodi.Kodi/data/temp
+docker compose up -d
+```
+
+The container's `node` user (uid 1000) must be able to read the directory and the file; with a
+different host uid, `chmod o+rx` the directory and `chmod o+r kodi.log`. Without the mount the
+tab says the log is unavailable and the rest of the page keeps working. ⚠️ unverified on the
+real host: the path, the permissions, and that the tab follows a Kodi restart.

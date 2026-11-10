@@ -175,8 +175,38 @@ export class LibraryService {
       .run();
   }
 
+  /** Series whose latest item is finished, newest first: candidates for a "next episode" card. */
+  finishedSeries(): HistoryEntry[] {
+    const rows = this.db.orm.select().from(progress).orderBy(desc(progress.lastPlayedAt)).all();
+    const seen = new Set<string>();
+    const latest = rows.filter((p) => !seen.has(p.titleId) && !!seen.add(p.titleId));
+    const finished = latest.filter((p) => p.watched && p.season !== null);
+    return this.entries(finished);
+  }
+
   overview(): LibraryResponse {
     const rows = this.db.orm.select().from(progress).orderBy(desc(progress.lastPlayedAt)).all();
+    const history = this.entries(rows.slice(0, 50));
+    const seen = new Set<string>();
+    const unfinished: ProgressRow[] = [];
+    for (const p of rows) {
+      if (seen.has(p.titleId)) continue; // only the latest item of each title counts
+      seen.add(p.titleId);
+      if (!p.watched && p.positionMs > 0) unfinished.push(p);
+    }
+    const continueWatching = this.entries(unfinished.slice(0, 20));
+    const flagged = (flag: 'liked' | 'saved') =>
+      this.db.orm
+        .select()
+        .from(titles)
+        .where(eq(titles[flag], true))
+        .orderBy(desc(titles.updatedAt))
+        .all()
+        .map(summary);
+    return { continueWatching, favorites: flagged('liked'), saved: flagged('saved'), history };
+  }
+
+  private entries(rows: ProgressRow[]): HistoryEntry[] {
     const ids = [...new Set(rows.map((r) => r.titleId))];
     const byId = new Map<string, TitleRow>();
     if (ids.length) {
@@ -198,24 +228,6 @@ export class LibraryService {
         lastPlayedAt: p.lastPlayedAt,
       };
     };
-    const history = rows.slice(0, 50).flatMap((p) => entry(p) ?? []);
-    const seen = new Set<string>();
-    const continueWatching: HistoryEntry[] = [];
-    for (const p of rows) {
-      if (seen.has(p.titleId)) continue; // only the latest item of each title counts
-      seen.add(p.titleId);
-      const e = !p.watched && p.positionMs > 0 ? entry(p) : undefined;
-      if (e) continueWatching.push(e);
-      if (continueWatching.length >= 20) break;
-    }
-    const flagged = (flag: 'liked' | 'saved') =>
-      this.db.orm
-        .select()
-        .from(titles)
-        .where(eq(titles[flag], true))
-        .orderBy(desc(titles.updatedAt))
-        .all()
-        .map(summary);
-    return { continueWatching, favorites: flagged('liked'), saved: flagged('saved'), history };
+    return rows.flatMap((p) => entry(p) ?? []);
   }
 }

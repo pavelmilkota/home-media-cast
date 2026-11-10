@@ -1,4 +1,4 @@
-import type { KodiHealth, PlayerEvent, PlayerStatus } from '@home-media-cast/shared';
+import type { BrowserStatus, KodiHealth, PlayerEvent, PlayerStatus } from '@home-media-cast/shared';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { auth } from '../api/auth.js';
 import { ApiError } from '../api/client.js';
@@ -9,22 +9,38 @@ export interface Live {
   connected: boolean;
   status: PlayerStatus | undefined;
   kodi: KodiHealth | undefined;
+  /** What plays in a browser, on any device; absent until the server says. */
+  browser: BrowserStatus | undefined;
 }
 
-const LiveContext = createContext<Live>({ connected: false, status: undefined, kodi: undefined });
+const LiveContext = createContext<Live>({
+  connected: false,
+  status: undefined,
+  kodi: undefined,
+  browser: undefined,
+});
 export const useLive = (): Live => useContext(LiveContext);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Keeps `/api/events` open for as long as the device is paired, reconnecting with backoff. */
 export function LiveProvider({ token, children }: { token: string; children: ReactNode }) {
-  const [live, setLive] = useState<Live>({ connected: false, status: undefined, kodi: undefined });
+  const [live, setLive] = useState<Live>({
+    connected: false,
+    status: undefined,
+    kodi: undefined,
+    browser: undefined,
+  });
 
   useEffect(() => {
     const ctl = new AbortController();
     const apply = (e: PlayerEvent) =>
       setLive((prev) =>
-        e.type === 'status' ? { ...prev, status: e.data } : { ...prev, kodi: e.data },
+        e.type === 'status'
+          ? { ...prev, status: e.data }
+          : e.type === 'browser'
+            ? { ...prev, browser: e.data }
+            : { ...prev, kodi: e.data },
       );
 
     void (async () => {
@@ -36,7 +52,8 @@ export function LiveProvider({ token, children }: { token: string; children: Rea
             signal: ctl.signal,
             onOpen: () => {
               delay = 1000;
-              setLive((prev) => ({ ...prev, connected: true }));
+              // A browser session that ended while disconnected is not replayed: start clean.
+              setLive((prev) => ({ ...prev, connected: true, browser: undefined }));
             },
             onEvent: apply,
           });

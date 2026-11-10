@@ -8,6 +8,10 @@ export const devices = sqliteTable('devices', {
   createdAt: integer('created_at').notNull(),
   lastSeenAt: integer('last_seen_at'),
   revokedAt: integer('revoked_at'),
+  /** `paired` devices control the TV and write to the library; `guest` devices only browse and play. */
+  kind: text('kind', { enum: ['paired', 'guest'] })
+    .notNull()
+    .default('paired'),
 });
 
 /** A title the household has liked, saved or watched. Shared by all paired devices. */
@@ -70,6 +74,29 @@ export const audioProbe = sqliteTable('audio_probe', {
   /** JSON AudioTrack[]. */
   tracks: text('tracks').notNull(),
   probedAt: integer('probed_at').notNull(),
+  /** JSON VideoFacts; null on rows written before video facts were read. */
+  video: text('video'),
+});
+
+/**
+ * What was started lately (one row per movie or episode, newest wins), for the "Recent" replay
+ * list. Holds no link. `releaseKey` (JSON, holds the torrent info hash) is host only: never
+ * returned by the API (AGENTS.md secrets rule).
+ */
+export const playbackHistory = sqliteTable('playback_history', {
+  videoId: text('video_id').primaryKey(),
+  type: text('type').notNull(),
+  titleId: text('title_id').notNull(),
+  name: text('name').notNull(),
+  year: text('year'),
+  poster: text('poster'),
+  /** Episode label ("S02E05 · Name"). */
+  label: text('label'),
+  releaseTitle: text('release_title').notNull(),
+  resolution: text('resolution'),
+  quality: text('quality'),
+  releaseKey: text('release_key').notNull(),
+  playedAt: integer('played_at').notNull(),
 });
 
 /** Small household-wide settings as JSON values, e.g. the audio and subtitle language last chosen. */

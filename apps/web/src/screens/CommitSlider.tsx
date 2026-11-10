@@ -12,6 +12,8 @@ interface Props {
   showLabel?: boolean;
   /** Shown next to the slider; receives the value being dragged. */
   display?: (value: number) => string;
+  /** `overlay`: on a picture (the video player), with a translucent track. */
+  tone?: 'default' | 'overlay';
   onCommit: (value: number) => void;
 }
 
@@ -28,6 +30,7 @@ export function CommitSlider({
   disabled,
   showLabel,
   display,
+  tone = 'default',
   onCommit,
 }: Props) {
   const [drag, setDrag] = useState<number | null>(null);
@@ -63,7 +66,7 @@ export function CommitSlider({
           <output className="min-w-[3.2em] text-right tabular-nums">{display(shown)}</output>
         )}
       </div>
-      <Slider.Track>
+      <Slider.Track className={tone === 'overlay' ? 'bg-white/30' : undefined}>
         <Slider.Fill />
         <Slider.Thumb />
       </Slider.Track>

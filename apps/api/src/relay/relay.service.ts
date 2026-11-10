@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { Readable } from 'node:stream';
 import { Logger } from '@nestjs/common';
 
 export interface RelayTarget {
@@ -21,6 +20,10 @@ export interface RelayOptions {
   maxEntries?: number;
   maxRedirects?: number;
   upstreamTimeoutMs?: number;
+  /** A running stream that delivers nothing for this long is treated as dropped and resumed. */
+  stallMs?: number;
+  /** How many times one response may be resumed from the provider before the client is cut off. */
+  maxResumes?: number;
 }
 
 interface Meta {
@@ -78,12 +81,16 @@ export class RelayService {
   private readonly maxEntries: number;
   private readonly maxRedirects: number;
   private readonly upstreamTimeoutMs: number;
+  private readonly stallMs: number;
+  private readonly maxResumes: number;
 
   constructor(private readonly options: RelayOptions) {
     this.ttlMs = options.ttlMs ?? 12 * 3600_000;
     this.maxEntries = options.maxEntries ?? 200;
     this.maxRedirects = options.maxRedirects ?? 5;
     this.upstreamTimeoutMs = options.upstreamTimeoutMs ?? 30_000;
+    this.stallMs = options.stallMs ?? 20_000;
+    this.maxResumes = options.maxResumes ?? 3;
   }
 
   /** Registers a target and returns the URL for Kodi. Throws if the URL is not allowed. */
@@ -180,10 +187,27 @@ export class RelayService {
     ) {
       return end(res, 404);
     }
+    const outcome = await this.serve(req, res, id);
+    if (outcome === 'gone') end(res, 404);
+    else if (outcome === 'dead') end(res, 410);
+  }
+
+  /**
+   * Streams entry `id` to `req`'s client, with `Range` and `HEAD`, and no check on who asks: the
+   * caller decides that (the LAN media route, where the session id is the capability). Writes
+   * nothing and returns `gone` for an unknown id, and `dead` when the provider refuses the link
+   * before anything was sent, so the caller can register it again once. Anything else, including a
+   * failed stream, is answered here.
+   */
+  async serve(
+    req: IncomingMessage,
+    res: ServerResponse,
+    id: string,
+  ): Promise<'served' | 'gone' | 'dead'> {
     const entry = this.entries.get(id);
     if (!entry || entry.expiresAt < Date.now()) {
       this.entries.delete(id);
-      return end(res, 404);
+      return 'gone';
     }
 
     const abort = new AbortController();
@@ -196,23 +220,28 @@ export class RelayService {
           'accept-ranges': 'bytes',
           ...(meta.length !== undefined ? { 'content-length': String(meta.length) } : {}),
         });
-        return void res.end();
+        res.end();
+        return 'served';
       }
       const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+      const asked = Date.now();
       const up = await this.fetchUpstream(entry.target, range, abort.signal);
+      const firstByteMs = Date.now() - asked;
       const headers: Record<string, string> = {};
       for (const name of FORWARD) {
         const value = up.headers.get(name);
         if (value) headers[name] = value;
       }
       res.writeHead(up.status, headers);
-      if (!up.body) return void res.end();
-      const body = Readable.fromWeb(up.body as import('node:stream/web').ReadableStream);
-      body.on('error', () => res.destroy());
-      res.on('close', () => body.destroy());
-      body.pipe(res);
+      if (!up.body) {
+        res.end();
+        return 'served';
+      }
+      void this.pump(entry, up, res, abort.signal, firstByteMs);
+      return 'served';
     } catch (e) {
-      if (abort.signal.aborted) return;
+      if (abort.signal.aborted) return 'served';
+      if (e instanceof UpstreamError && e.status === 410 && !res.headersSent) return 'dead';
       const status = e instanceof UpstreamError ? e.status : 502;
       // The message is written by this class and never contains a URL.
       this.logger.warn(
@@ -220,7 +249,108 @@ export class RelayService {
       );
       if (!res.headersSent) end(res, status);
       else res.destroy();
+      return 'served';
     }
+  }
+
+  /**
+   * Copies the provider's body to the client. A provider connection that drops, or goes quiet for
+   * `stallMs`, is continued from the next byte with a new `Range` request (the client never sees
+   * it); a response that cannot be continued is cut so the player asks again by itself, rather
+   * than hanging on a stream that will never deliver. Logs how fast each stream ran.
+   */
+  private async pump(
+    entry: Entry,
+    first: Response,
+    res: ServerResponse,
+    signal: AbortSignal,
+    firstByteMs: number,
+  ): Promise<void> {
+    const total = /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/.exec(first.headers.get('content-range') ?? '');
+    const length = Number(first.headers.get('content-length')) || undefined;
+    let next = total ? Number(total[1]) : first.status === 200 ? 0 : undefined;
+    const last = total ? Number(total[2]) : first.status === 200 && length ? length - 1 : undefined;
+    const startedAt = Date.now();
+    let sent = 0;
+    let resumes = 0;
+    let slowest = 0;
+    let reader = (first.body as ReadableStream<Uint8Array>).getReader();
+    const finish = (how: string) => {
+      const seconds = Math.max(0.001, (Date.now() - startedAt) / 1000);
+      const mbit = ((sent * 8) / 1e6 / seconds).toFixed(1);
+      this.logger.log(
+        `Relay stream ${how}: ${(sent / 1e6).toFixed(1)} MB in ${seconds.toFixed(1)} s ` +
+          `(${mbit} Mbit/s), first byte ${firstByteMs} ms, longest wait ${slowest} ms, ` +
+          `${resumes} resumes`,
+      );
+    };
+    try {
+      for (;;) {
+        try {
+          for (;;) {
+            const waited = Date.now();
+            const chunk = await readWithin(reader, this.stallMs);
+            slowest = Math.max(slowest, Date.now() - waited);
+            if (signal.aborted) return void finish('cancelled');
+            if (chunk.done) {
+              // Ending short of what was promised is a drop too.
+              if (last !== undefined && next !== undefined && next <= last) {
+                throw new Error('ended early');
+              }
+              res.end();
+              return void finish('finished');
+            }
+            sent += chunk.value.length;
+            if (next !== undefined) next += chunk.value.length;
+            if (!res.write(chunk.value)) {
+              await new Promise<void>((resolve) => {
+                const done = () => {
+                  res.off('drain', done);
+                  res.off('close', done);
+                  resolve();
+                };
+                res.once('drain', done);
+                res.once('close', done);
+              });
+              if (signal.aborted) return void finish('cancelled');
+            }
+          }
+        } catch (e) {
+          await reader.cancel().catch(() => undefined);
+          if (signal.aborted) return void finish('cancelled');
+          const why = e instanceof Error && e.message === 'stalled' ? 'stalled' : 'dropped';
+          if (
+            next === undefined ||
+            last === undefined ||
+            next > last ||
+            resumes >= this.maxResumes
+          ) {
+            this.logger.warn(
+              `Provider stream ${why} and cannot be continued: cutting the client off`,
+            );
+            res.destroy();
+            return void finish('cut');
+          }
+          resumes++;
+          this.logger.warn(`Provider stream ${why}: continuing from byte ${next} (${resumes})`);
+          const again = await this.fetchUpstream(entry.target, `bytes=${next}-${last}`, signal);
+          if (again.status !== 206 || !again.body) {
+            await again.body?.cancel().catch(() => undefined);
+            throw new Error('cannot resume', { cause: e });
+          }
+          reader = again.body.getReader();
+        }
+      }
+    } catch {
+      // A resume that failed too: nothing more can be done for this response.
+      if (!res.destroyed) res.destroy();
+      finish('cut');
+    }
+  }
+
+  /** The size of the file behind `id`, once `preflight` has read it. */
+  sizeOf(id: string): number | undefined {
+    return this.entries.get(id)?.meta?.length;
   }
 
   /** Size and type, fetched once so Kodi's many `HEAD` requests never reach the provider. */
@@ -244,6 +374,7 @@ export class RelayService {
     for (let hop = 0; hop <= this.maxRedirects; hop++) {
       if (hop > 0)
         url = await this.options.check(url).catch(() => {
+          this.logger.warn('A redirect hop was refused by the URL check');
           throw new UpstreamError(502, 'Redirect to a blocked address');
         });
       const sameOrigin = new URL(url).origin === firstOrigin;
@@ -264,6 +395,7 @@ export class RelayService {
       })
         .catch((e: Error) => {
           if (signal.aborted) throw e;
+          this.logger.warn(`Source did not answer: ${e.name}`);
           throw new UpstreamError(e.name === 'TimeoutError' ? 504 : 502, 'Upstream unreachable');
         })
         .finally(() => clearTimeout(timer));
@@ -276,6 +408,7 @@ export class RelayService {
       }
       if (res.status === 200 || res.status === 206 || res.status === 416) return res;
       await res.body?.cancel().catch(() => undefined);
+      this.logger.warn(`Source answered ${res.status}`);
       // 401/403/404/410 mean the link is dead or expired: say so, so the caller can refresh it.
       throw new UpstreamError(
         [401, 403, 404, 410].includes(res.status) ? 410 : 502,
@@ -294,4 +427,24 @@ export class RelayService {
 function end(res: ServerResponse, status: number): void {
   res.writeHead(status, { 'content-length': '0' });
   res.end();
+}
+
+/** Reads the next chunk, or rejects with `stalled` if nothing arrives within `ms`. */
+function readWithin(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  ms: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('stalled')), ms);
+    reader.read().then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e instanceof Error ? e : new Error('dropped'));
+      },
+    );
+  });
 }

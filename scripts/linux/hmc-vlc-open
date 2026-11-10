@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Opens a stream from Home Media Cast in VLC. Registered as the handler of `hmc-vlc://` links by
+install-vlc-handler.sh, so that "Open in player" in Chrome or Firefox can start VLC.
+
+Link form: hmc-vlc://open?url=<percent-encoded stream address>&start=<seconds>
+
+Only this app's own stream addresses are accepted (http or https, path /api/media/...), and the
+address is passed to VLC after `--`, so a web page cannot make this start anything else.
+"""
+import os
+import sys
+from urllib.parse import parse_qs, urlsplit
+
+
+def main(argv):
+    if len(argv) != 2 or not argv[1].startswith("hmc-vlc://"):
+        sys.exit("usage: hmc-vlc-open 'hmc-vlc://open?url=...&start=...'")
+    query = parse_qs(urlsplit(argv[1]).query)
+    target = urlsplit((query.get("url") or [""])[0])
+    ok = (
+        target.scheme in ("http", "https")
+        and target.hostname
+        and not target.username
+        and target.path.startswith("/api/media/")
+    )
+    if not ok:
+        sys.exit("refused: not a Home Media Cast stream address")
+    start = (query.get("start") or ["0"])[0]
+    args = ["vlc", "--http-reconnect"]
+    if start.isdigit() and int(start) > 0:
+        args.append(f"--start-time={int(start)}")
+    args += ["--", target.geturl()]
+    os.execvp("vlc", args)
+
+
+main(sys.argv)

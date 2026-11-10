@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { StreamKind, StreamOption } from '@home-media-cast/shared';
+import type { StreamKind, StreamOption, VideoFacts } from '@home-media-cast/shared';
 import { YOUTUBE_VIDEO_ID, safeTitle } from '../kodi/kodi.commands.js';
 
 /**
@@ -39,6 +39,8 @@ const num = (v: unknown): number | undefined =>
 const INFO_HASH = /^[0-9a-f]{40}$/i;
 /** Fields of a Stremio / AIOStreams result that point at something we do not play. */
 const UNSUPPORTED_FIELDS = ['nzbUrl', 'rarUrls', 'zipUrls', '7zipUrls', 'tarUrls', 'tgzUrls'];
+/** The title of a result that names nothing; such a result has no audio key. */
+const UNTITLED = 'Untitled stream';
 const nonEmpty = (v: unknown): boolean =>
   Array.isArray(v) ? v.length > 0 : typeof v === 'string' ? v !== '' : v != null && v !== false;
 
@@ -56,6 +58,35 @@ export function resolutionFromName(name: string): string | undefined {
   const p = /(?<![0-9a-z])(2160|1440|1080|720|576|480)[pi](?![a-z])/i.exec(name);
   if (p) return `${p[1]}p`;
   return /(?<![0-9a-z])(4k|uhd)(?![0-9a-z])/i.test(name) ? '2160p' : undefined;
+}
+
+/**
+ * What a release name says about the video; fields it does not say stay absent. Undefined when it
+ * says nothing at all. A guess for labels only: the header read at start decides.
+ */
+export function videoFromName(name: string, resolution?: string): VideoFacts | undefined {
+  const codec: VideoFacts['codec'] | undefined =
+    /(?<![0-9a-z])(x\.?265|h\.?265|hevc)(?![0-9a-z])/i.test(name)
+      ? 'hevc'
+      : /(?<![0-9a-z])(x\.?264|h\.?264|avc)(?![0-9a-z])/i.test(name)
+        ? 'h264'
+        : /(?<![0-9a-z])av1(?![0-9a-z])/i.test(name)
+          ? 'av1'
+          : /(?<![0-9a-z])vp9(?![0-9a-z])/i.test(name)
+            ? 'vp9'
+            : undefined;
+  const height =
+    Number(/^(\d+)p$/.exec(resolution ?? resolutionFromName(name) ?? '')?.[1]) || undefined;
+  const tenBit = /(?<![0-9a-z])(10[ ._-]?bit|hi10p?|main[ ._-]?10)(?![0-9a-z])/i.test(name);
+  const dv = /(?<![0-9a-z])(dv|dovi|dolby[ ._-]?vision)(?![0-9a-z])/i.test(name);
+  const hdr10 = /(?<![0-9a-z])hdr(10(\+)?)?(?![0-9a-z])/i.test(name);
+  if (!codec && !height && !tenBit && !dv && !hdr10) return undefined;
+  return {
+    ...(codec ? { codec } : {}),
+    ...(height ? { height } : {}),
+    ...(tenBit ? { bitDepth: 10 } : {}),
+    hdr: dv ? (hdr10 ? 'dv-fallback' : 'dv') : hdr10 ? 'hdr10' : 'none',
+  };
 }
 
 /** Audio languages are plain names; subtitles are Stremio `{ lang }` objects or plain names. */
@@ -143,7 +174,7 @@ export function classifyResult(input: unknown): ClassifiedResult {
   const infoHash = str(raw['infoHash']);
   return {
     source: classifySource(raw),
-    title: title || 'Untitled stream',
+    title: title || UNTITLED,
     ...(str(raw['service']) ? { service: (str(raw['service']) as string).toLowerCase() } : {}),
     cached: typeof raw['cached'] === 'boolean' ? raw['cached'] : null,
     ...(num(raw['size']) !== undefined ? { sizeBytes: num(raw['size']) as number } : {}),
@@ -160,12 +191,19 @@ export function classifyResult(input: unknown): ClassifiedResult {
 /**
  * What the audio tracks of a result are cached under: the torrent, the file inside it and its
  * name. Never the link (temporary, ADR-0005) or an option id (minted again on every refresh).
- * Undefined when the result does not name its torrent.
+ * A result that does not name its torrent (Real-Debrid through AIOStreams) falls back to the
+ * service, the file name and the size, which together stand for one file. Undefined when the
+ * result gives neither a torrent nor a name and a size.
  */
 export function audioKey(c: ClassifiedResult): string | undefined {
-  if (!c.infoHash) return undefined;
+  if (c.infoHash) {
+    return createHash('sha256')
+      .update(JSON.stringify([c.infoHash, c.fileIdx ?? null, c.title, c.sizeBytes ?? null]))
+      .digest('hex');
+  }
+  if (c.sizeBytes === undefined || c.title === UNTITLED) return undefined;
   return createHash('sha256')
-    .update(JSON.stringify([c.infoHash, c.fileIdx ?? null, c.title, c.sizeBytes ?? null]))
+    .update(JSON.stringify(['file', c.service ?? null, c.title, c.sizeBytes]))
     .digest('hex');
 }
 
@@ -221,6 +259,7 @@ const PLAYABLE: ReadonlySet<StreamKind> = new Set(['direct_url', 'youtube']);
 export function toOption(id: string, c: ClassifiedResult): StreamOption {
   const kind = c.source.kind;
   const playable = PLAYABLE.has(kind);
+  const video = kind === 'direct_url' ? videoFromName(c.title, c.resolution) : undefined;
   return {
     id,
     title: c.title,
@@ -232,6 +271,7 @@ export function toOption(id: string, c: ClassifiedResult): StreamOption {
     ...(c.subtitles ? { subtitles: c.subtitles } : {}),
     ...(c.resolution ? { resolution: c.resolution } : {}),
     ...(c.quality ? { quality: c.quality } : {}),
+    ...(video ? { video } : {}),
     playable,
     ...(c.source.kind === 'unsupported'
       ? { reason: c.source.reason }

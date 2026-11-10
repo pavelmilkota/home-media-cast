@@ -284,12 +284,25 @@ describe('catalog and library (e2e)', () => {
       label: 'S1E1 · Pilot',
       watched: true,
     });
-    expect(lib.continueWatching).toEqual([]);
+    // the finished episode makes way for the next one
+    expect(lib.continueWatching).toMatchObject([
+      { id: 'tt0903747', videoId: 'tt0903747:1:2', watched: false, progress: 0 },
+    ]);
 
     await mark('tt0903747:1:1', false);
     d = (await get('/catalog/series/tt0903747')).body as TitleDetail;
     expect(d.nextUp).toBe('tt0903747:1:1');
     expect(((await get('/library')).body as LibraryResponse).history).toEqual([]);
+  });
+
+  it('continues after the furthest watched episode, whatever was marked last', async () => {
+    const mark = (id: string) =>
+      t.http('PUT', `/catalog/series/watched/${id}`, { token, body: { watched: true } });
+    await mark('tt0903747:1:2');
+    await mark('tt0903747:1:1'); // marked last, but not the furthest
+    const lib = (await get('/library')).body as LibraryResponse;
+    // episode 2 is the furthest and episode 3 has not aired: nothing to continue with
+    expect(lib.continueWatching).toEqual([]);
   });
 
   it('marks the aired episodes of a season watched and passes thumbnails on', async () => {

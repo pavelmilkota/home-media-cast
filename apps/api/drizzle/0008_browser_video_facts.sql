@@ -1,0 +1,1 @@
+ALTER TABLE `audio_probe` ADD `video` text;

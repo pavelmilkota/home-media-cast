@@ -1,0 +1,1 @@
+ALTER TABLE `devices` ADD `kind` text DEFAULT 'paired' NOT NULL;

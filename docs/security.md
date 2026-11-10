@@ -14,8 +14,14 @@ Tested automatically; anything not yet tried by hand is marked ⚠️.
 - **Tokens.** 256 random bits, shown once; the database stores only the SHA-256. Revoking a
   device takes effect on its next request.
 - **Every route needs `Authorization: Bearer`** except `GET /api/health`,
-  `POST /api/pairing/*` and the OpenAPI UI at `/api/docs`. A request without a valid token
-  never reaches Kodi.
+  `POST /api/pairing/*`, `POST /api/guest` and the OpenAPI UI at `/api/docs`. A request without a
+  valid token never reaches Kodi.
+- **Two kinds of token.** A *paired* token (the code shown on the projector) reaches every route.
+  A *guest* token, which a device gets by calling `POST /api/guest` (10 registrations a minute
+  for everyone, 200 guests kept), reaches only handlers marked `@GuestAllowed()`: reading the
+  catalog, library, sources and play history, the status stream, and playing in the browser or an
+  external player. Everything else answers `403 guest_forbidden`; a new route is closed to
+  guests until someone opens it. `GUEST_PLAYBACK_ENABLED=false` switches guests off (ADR-0009).
 - **SSRF check on pasted links.** `http(s)` only, no embedded credentials, no `|`, and the
   host is resolved: loopback, RFC1918, link-local, CGNAT (the tailnet), multicast, reserved
   and non-global IPv6 are refused (HTTP 422). IPv4-mapped IPv6 and decimal/hex/octal IP forms
@@ -28,6 +34,14 @@ Tested automatically; anything not yet tried by hand is marked ⚠️.
   extra privileges (ADR-0008). ⚠️ unverified on the real host.
 - **Logs.** One line per request: method, redacted URL, status, time. Headers and bodies are
   never logged, so tokens, pairing codes and pasted links cannot appear.
+- **Logs page.** `GET /api/logs/app` and `/api/logs/kodi` need a bearer token like the rest. Every
+  line is redacted by the API before it leaves (and the app's entries before they are stored):
+  sensitive query values and `key=value` pairs, `Bearer` tokens, URL credentials and relay ids.
+  The app buffer keeps the last 1000 warnings and errors in memory only; the Kodi tab reads at
+  most the last 256 KB of `kodi.log` (500 lines) through a read-only mount of the log
+  *directory* (`KODI_LOG_DIR`), nothing else from Kodi's data. Redaction is pattern-based, so
+  an unusual secret format in an addon's output could slip through. ⚠️ unverified on the real
+  host.
 - **Container.** Unprivileged user, read-only root file system, `cap_drop: ALL`,
   `no-new-privileges`, and only the variables the API reads (the TorBox key is not passed).
 - **Dependencies.** Build scripts of `@scarf/scarf` (telemetry), `@swc/core` and `esbuild`
@@ -50,6 +64,23 @@ Tested automatically; anything not yet tried by hand is marked ⚠️.
   request logs. ⚠️ unverified: throughput on a real 4K file and a real provider link.
   The audio probe opens a provider link only for sources marked cached, because opening an
   uncached link could start a download on the debrid account. ⚠️ unverified against real TorBox.
+- **Browser playback** (`/api/browser-play`, token required; `/api/media/:session/:run/:file`,
+  public). The media route has no bearer because `<video>` cannot send one; the 128-bit session id
+  in the path is the capability. It serves only an allowlist of file names from the current run of
+  a live session, with `Cache-Control: no-store`, and `404` for everything else; the control
+  routes answer `404` for another device's session. Revoking a device ends its session. `ffmpeg`
+  reads the loopback relay (never a provider link), is started without a shell, with only `PATH`
+  and a locale in its environment, `-protocol_whitelist http,tcp,file`, and its stderr is masked
+  before logging. **Anyone on the LAN who holds the media URL can watch until the session ends.**
+  See ADR-0009. ⚠️ unverified on real sources and devices.
+- **External players** (`POST /api/browser-play/external`, token required;
+  `GET|HEAD /api/media/:session/file/:name`, public). The file route serves the source's own bytes
+  with `Range` through the relay, never the provider link, to whoever holds the session id (128
+  bits, never logged; `redactUrl` masks it, also in `/api/browser-play/external/<id>`). **Anyone on
+  the LAN who holds the URL can read the file until the session ends**, and a player may keep the
+  URL in its history: the session ends after 30 minutes without a request, at most 12 hours in all,
+  when the device is revoked, or when something else takes over, and ending it cuts the open
+  stream. The relay's loopback-only `handle` is unchanged.
 - **YouTube links** (`POST /api/playback/youtube`, token required). Only an exact YouTube host
   is accepted (`youtube.com`, `m.`/`www.`/`music.` subdomains, `youtube-nocookie.com`,
   `youtu.be`), no port, no credentials. The backend keeps just the 11-character video id and a
@@ -64,6 +95,10 @@ Tested automatically; anything not yet tried by hand is marked ⚠️.
   is set up (planned, ADR-0007).
 - **Anyone on the LAN can request a pairing code** (it pops up on the projector). Guessing is
   bounded to about 5 tries per 10 s against a 1-in-a-million code.
+- **Anyone on the LAN can register as a guest and start a stream on the debrid account**,
+  including an uncached source, which starts a download there. A guest cannot touch the TV or
+  the library, but it spends the account. Revoking a device no longer locks it out: it
+  registers again as a guest. `GUEST_PLAYBACK_ENABLED=false` is the way to close the door.
 - ⚠️ Kodi's video database may keep played URLs (ADR-0005).
 - **YouTube casting bypasses device tokens by design** (ADR-0007, accepted exception). Off by
   default (`YOUTUBE_CAST_ENABLED`); switch with `PUT /api/youtube/cast` (token required). What a

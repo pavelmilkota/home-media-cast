@@ -9,7 +9,18 @@ import { auth } from '../api/auth.js';
 import { api } from '../api/client.js';
 import { guessDeviceName } from '../format.js';
 
-export function PairingScreen() {
+/**
+ * The two pairing steps. With `asGuest` the device already has a guest token: it is sent along,
+ * so the server turns that same device into a paired one, and a wrong code leaves the guest
+ * logged in (a 401 would otherwise clear the token and end a film in progress).
+ */
+export function PairingForm({
+  asGuest = false,
+  onPaired,
+}: {
+  asGuest?: boolean;
+  onPaired?: () => void;
+}) {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
   const [name, setName] = useState(guessDeviceName);
@@ -20,10 +31,14 @@ export function PairingScreen() {
     mutationFn: () =>
       api<PairingCompleteResponse>('/pairing/complete', {
         method: 'POST',
-        auth: false,
+        auth: asGuest,
+        keepToken: asGuest,
         body: { code, deviceName: name.trim() },
       }),
-    onSuccess: (res) => auth.set(res.token),
+    onSuccess: (res) => {
+      auth.set(res.token, 'paired');
+      onPaired?.();
+    },
   });
 
   const submit = (e: FormEvent) => {
@@ -33,10 +48,7 @@ export function PairingScreen() {
   const ready = /^\d{6}$/.test(code) && name.trim().length > 0;
 
   return (
-    <main className={screen}>
-      <h1 className="text-2xl font-semibold">Home Media Cast</h1>
-      <p className="text-muted">{t('pairing.intro')}</p>
-
+    <>
       <Card>
         <Card.Title>{t('pairing.step1')}</Card.Title>
         <Button
@@ -89,6 +101,18 @@ export function PairingScreen() {
           )}
         </Card>
       </form>
+    </>
+  );
+}
+
+/** Shown when a device cannot register as a guest (`GUEST_PLAYBACK_ENABLED=false`). */
+export function PairingScreen() {
+  const { t } = useTranslation();
+  return (
+    <main className={screen}>
+      <h1 className="text-2xl font-semibold">Home Media Cast</h1>
+      <p className="text-muted">{t('pairing.intro')}</p>
+      <PairingForm />
     </main>
   );
 }

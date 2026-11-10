@@ -8,6 +8,7 @@ import { DbService } from '../db/db.service.js';
 import { KodiService } from '../kodi/kodi.service.js';
 import { RelayService } from '../relay/relay.service.js';
 import { AudioProbeStore } from './audio-probe.store.js';
+import { PlaybackHistoryStore } from './playback-history.store.js';
 import { QueueService } from './queue.service.js';
 import { StreamsCacheStore } from './streams-cache.store.js';
 import { StreamsController } from './streams.controller.js';
@@ -17,6 +18,7 @@ import { WatchPlayService } from './watch-play.service.js';
 @Module({
   imports: [CatalogModule],
   controllers: [StreamsController],
+  exports: [StreamsService, WatchPlayService],
   providers: [
     {
       provide: StreamsCacheStore,
@@ -27,6 +29,11 @@ import { WatchPlayService } from './watch-play.service.js';
       provide: AudioProbeStore,
       inject: [DbService],
       useFactory: (db: DbService) => new AudioProbeStore(db),
+    },
+    {
+      provide: PlaybackHistoryStore,
+      inject: [DbService],
+      useFactory: (db: DbService) => new PlaybackHistoryStore(db),
     },
     {
       provide: StreamsService,
@@ -50,9 +57,14 @@ import { WatchPlayService } from './watch-play.service.js';
     { provide: QueueService, useFactory: () => new QueueService() },
     {
       provide: WatchPlayService,
-      inject: [StreamsService, CatalogService, WatchTracker, QueueService],
-      useFactory: (s: StreamsService, c: CatalogService, t: WatchTracker, q: QueueService) =>
-        new WatchPlayService(s, c, t, q, { autoNext: loadConfig().autoNextEpisode }),
+      inject: [StreamsService, CatalogService, WatchTracker, QueueService, PlaybackHistoryStore],
+      useFactory: (
+        s: StreamsService,
+        c: CatalogService,
+        t: WatchTracker,
+        q: QueueService,
+        h: PlaybackHistoryStore,
+      ) => new WatchPlayService(s, c, t, q, h, { autoNext: loadConfig().autoNextEpisode }),
     },
   ],
 })

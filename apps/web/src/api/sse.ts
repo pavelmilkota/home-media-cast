@@ -53,7 +53,7 @@ export async function connectEvents(opts: ConnectOptions): Promise<void> {
   };
   const decoder = new TextDecoder();
   const feed = createSseParser((event, data) => {
-    if (event !== 'status' && event !== 'kodi') return; // ping and unknown events
+    if (event !== 'status' && event !== 'kodi' && event !== 'browser') return; // ping and unknown events
     try {
       onEvent({ type: event, data: JSON.parse(data) } as PlayerEvent);
     } catch {

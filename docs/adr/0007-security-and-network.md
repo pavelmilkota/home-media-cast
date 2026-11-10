@@ -91,3 +91,9 @@
   **Plan:** in Stage 2, a one-hour spike: CA (option 1) → install the PWA on the Pixel → does
   it appear in Share? If yes, keep option 1. If not, option 2 will not fix it (same WebAPK
   problem), and we stay on option 4.
+
+## Amendment: guests (ADR-0009)
+
+Since ADR-0009 a device may register itself as a guest (`POST /api/guest`) and play in the
+browser without pairing. A guest token reaches only the routes marked for it. See "Guests" in
+ADR-0009 and `docs/security.md` for the route list and what it costs.

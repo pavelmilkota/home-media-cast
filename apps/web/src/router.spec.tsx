@@ -3,7 +3,7 @@ import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { auth } from './api/auth.js';
-import { validateRootSearch, validateSearchQuery } from './router.js';
+import { validateLogsSearch, validateRootSearch, validateSearchQuery } from './router.js';
 import { FakeBackend, idle, playing } from './testing/fake-backend.js';
 import { renderApp } from './testing/render.js';
 
@@ -111,6 +111,45 @@ describe('title and search', () => {
     await live();
     await userEvent.type(screen.getByLabelText('Movie or series title'), 'shaw{Enter}');
     await waitFor(() => expect(router.state.location.search).toEqual({ q: 'shaw' }));
+  });
+});
+
+describe('validateLogsSearch', () => {
+  it('keeps only the two known tabs', () => {
+    expect(validateLogsSearch({ tab: 'app' })).toEqual({ tab: 'app' });
+    expect(validateLogsSearch({ tab: 'kodi' })).toEqual({ tab: 'kodi' });
+    expect(validateLogsSearch({ tab: 'x' })).toEqual({});
+    expect(validateLogsSearch({ tab: 3 })).toEqual({});
+  });
+});
+
+describe('logs page', () => {
+  it('opens from Settings, and Back returns to the page before without reopening Settings', async () => {
+    const { router } = await renderApp({ url: '/library' });
+    await live();
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Logs' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/logs'));
+    expect(await screen.findByText(/Playback failed/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /Back/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/library'));
+    expect(router.state.location.search).toEqual({});
+  });
+
+  it('Back on a directly opened page goes Home', async () => {
+    const { router } = await renderApp({ url: '/logs?tab=app' });
+    await live();
+    await userEvent.click(await screen.findByRole('button', { name: /Back/ }));
+    expect(router.state.location.pathname).toBe('/');
+  });
+
+  it('keeps the tab in the URL', async () => {
+    const { router } = await renderApp({ url: '/logs' });
+    await live();
+    await userEvent.click(await screen.findByRole('tab', { name: 'App' }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ tab: 'app' }));
+    expect(await screen.findByText(/Upstream unreachable/)).toBeInTheDocument();
   });
 });
 

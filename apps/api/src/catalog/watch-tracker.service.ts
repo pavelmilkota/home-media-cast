@@ -17,7 +17,7 @@ export interface WatchTrackerOptions {
   seekRetryMs?: number;
 }
 
-const mediaOf = (item: TrackedItem): PlayerMedia => ({
+export const mediaOf = (item: TrackedItem): PlayerMedia => ({
   name: item.title.name,
   ...(item.season !== undefined ? { season: item.season } : {}),
   ...(item.episode !== undefined ? { episode: item.episode } : {}),
@@ -25,6 +25,14 @@ const mediaOf = (item: TrackedItem): PlayerMedia => ({
 });
 
 type Active = Extract<PlayerStatus, { active: true }>;
+
+/** The catalog playback the TV is showing right now. */
+export interface ActivePlay {
+  item: TrackedItem;
+  bingeGroup?: string;
+  /** The listed option it was started from; may have expired since. */
+  optionId?: string;
+}
 
 /**
  * Records what is watched from the player status. It follows one playback at a time: the one
@@ -39,6 +47,7 @@ export class WatchTracker implements OnModuleDestroy {
   private readonly seekRetryMs: number;
   private session: { stop: () => void } | undefined;
   private last: { item: TrackedItem; bingeGroup?: string } | undefined;
+  private active: ActivePlay | undefined;
   /** Called when a tracked playback ended past the "watched" mark and nothing replaced it. */
   onFinished: ((item: TrackedItem, bingeGroup?: string) => void) | undefined;
 
@@ -76,6 +85,7 @@ export class WatchTracker implements OnModuleDestroy {
     before: PlayerStatus | undefined,
     resumeMs?: number,
     bingeGroup?: string,
+    optionId?: string,
   ): void {
     this.end();
     this.last = { item, ...(bingeGroup ? { bingeGroup } : {}) };
@@ -111,7 +121,14 @@ export class WatchTracker implements OnModuleDestroy {
             if (resumeMs) this.resume(resumeMs);
             applyTracks = this.tracks?.forPlayback();
           }
-          if (!tracking) this.player.annotate(mediaOf(item), s.title);
+          if (!tracking) {
+            this.player.annotate(mediaOf(item), s.title);
+            this.active = {
+              item,
+              ...(bingeGroup ? { bingeGroup } : {}),
+              ...(optionId ? { optionId } : {}),
+            };
+          }
           tracking = s;
           applyTracks?.(s);
           if (Date.now() - lastSaved >= this.saveEveryMs || s.speed === 0) {
@@ -141,6 +158,14 @@ export class WatchTracker implements OnModuleDestroy {
     };
   }
 
+  /**
+   * The catalog playback on the TV now: set once the TV shows it, cleared when it stops, ends or
+   * is replaced. Unlike `lastPlay()`, it is empty when nothing is playing.
+   */
+  activePlay(): ActivePlay | undefined {
+    return this.active;
+  }
+
   /** The last playback started from the catalog, even after it ended. */
   lastPlay(): { item: TrackedItem; bingeGroup?: string } | undefined {
     return this.last;
@@ -167,6 +192,7 @@ export class WatchTracker implements OnModuleDestroy {
   end(): void {
     const s = this.session;
     this.session = undefined;
+    this.active = undefined;
     s?.stop();
   }
 }

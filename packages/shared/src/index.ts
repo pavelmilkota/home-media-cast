@@ -21,3 +21,9 @@ export * from './youtube.js';
 export * from './streams.js';
 
 export * from './catalog.js';
+
+export * from './logs.js';
+
+export * from './history.js';
+
+export * from './browser-play.js';

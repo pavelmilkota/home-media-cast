@@ -1,3 +1,5 @@
+import type { VideoFacts } from './browser-play.js';
+
 export type StreamKind = 'direct_url' | 'youtube' | 'torrent' | 'external_url' | 'unsupported';
 
 /**
@@ -28,6 +30,11 @@ export interface StreamOption {
   resolution?: string;
   /** Source quality as reported: "BluRay", "WEB-DL", "WEBRip"… */
   quality?: string;
+  /**
+   * The video, from the file's header when it was read, otherwise from the release name (so
+   * unknown fields are absent, never guessed).
+   */
+  video?: VideoFacts;
   /** False for kinds we cannot play; `reason` says why. */
   playable: boolean;
   reason?: string;
@@ -51,7 +58,8 @@ export interface AudioTrack {
  * (not cached, unknown container, provider error); the list keeps the languages it already has.
  */
 export type AudioProbeResponse =
-  { status: 'ok'; tracks: AudioTrack[]; languages: string[] } | { status: 'unavailable' };
+  | { status: 'ok'; tracks: AudioTrack[]; languages: string[]; video?: VideoFacts }
+  | { status: 'unavailable' };
 
 export type TitleType = 'movie' | 'series';
 

@@ -1,17 +1,34 @@
-import { Button, Card, Chip, ProgressBar, Spinner, Switch, toast } from '@heroui/react';
-import type {
-  AudioProbeResponse,
-  CatalogType,
-  StreamOption,
-  StreamsResponse,
+import {
+  Button,
+  Card,
+  Chip,
+  ProgressBar,
+  Spinner,
+  Switch,
+  ToggleButton,
+  ToggleButtonGroup,
+  toast,
+} from '@heroui/react';
+import {
+  playbackMode,
+  type AudioProbeResponse,
+  type BrowserPlayConfig,
+  type ExternalSession,
+  type CatalogType,
+  type StreamOption,
+  type StreamsResponse,
 } from '@home-media-cast/shared';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, api } from '../api/client.js';
-import { ageLabel } from '../format.js';
+import { ageLabel, formatTime } from '../format.js';
+import { useBrowserPlayer } from '../state/browser-player.js';
+import { deviceCaps } from '../state/device-caps.js';
 import { useLive } from '../state/live.js';
+import { useEffectiveTarget, usePlayTarget } from '../state/play-target.js';
+import { useKodiDown, useTvAccess } from '../state/use-tv-access.js';
 import {
   NO_FILTERS,
   SourceFilters,
@@ -21,6 +38,7 @@ import {
 } from './source-filters.js';
 import { useQueue } from '../state/queue.js';
 import { QueueCard } from './QueueCard.js';
+import { OpenInPlayerFallback, useOpenInPlayer } from './use-open-in-player.js';
 import { useStartWatch } from './use-start-watch.js';
 import { useVisibleIds } from './use-visible-ids.js';
 
@@ -75,7 +93,10 @@ export function SourcePicker({
   type,
   videoId,
   heading,
+  playerName,
   resumeAt,
+  resumeAtMs,
+  handoff,
   embedded = false,
   onStarted,
   onClose,
@@ -84,8 +105,14 @@ export function SourcePicker({
   type: CatalogType;
   videoId: string;
   heading: string;
+  /** What the browser player shows as the title; the heading when absent. */
+  playerName?: string;
   /** 0..1 when the library has an unfinished position for this item. */
   resumeAt?: number;
+  /** Start the browser player here (handoff); the TV flow ignores it. */
+  resumeAtMs?: number;
+  /** A handoff that could not pick its source: continue at `positionMs` on `direction`'s device. */
+  handoff?: { direction: 'here' | 'tv'; positionMs: number; reason?: string };
   /** Shown inside the title page (a movie) instead of as a step of its own: no Back, fixed heading. */
   embedded?: boolean;
   onStarted: () => void;
@@ -97,6 +124,26 @@ export function SourcePicker({
   const [confirming, setConfirming] = useState<string | undefined>();
   const [resume, setResume] = useState(true);
   const [filters, setFilters] = useState(NO_FILTERS);
+  const [, setTarget] = usePlayTarget();
+  const target = useEffectiveTarget();
+  const tv = useTvAccess();
+  const kodiDown = useKodiDown();
+  // A handoff decides where it goes; otherwise this device's own default does.
+  const inBrowser = handoff ? handoff.direction === 'here' : target === 'browser';
+  // A guest's own position (`resumeAtMs`) goes with the request only while the resume switch is on.
+  const startAtMs =
+    handoff?.direction === 'here' ? handoff.positionMs : resume ? resumeAtMs : undefined;
+  const browser = useBrowserPlayer();
+  // What this browser decodes; read once, it does not change while the page is open.
+  const [caps] = useState(deviceCaps);
+  // Until the server answers, assume it converts: a label that turns out too cautious is worse.
+  const browserConfig = useQuery({
+    queryKey: ['browser-play-config'],
+    queryFn: () => api<BrowserPlayConfig>('/browser-play/config'),
+    enabled: inBrowser,
+    staleTime: Infinity,
+  });
+  const canConvert = browserConfig.data?.transcode ?? true;
   const { phase, begin, arm } = useStartWatch(status, onStarted, startTimeoutMs);
 
   // Set by Retry: the next fetch asks the server to update its cached list right now.
@@ -125,16 +172,28 @@ export function SourcePicker({
 
   const play = useMutation({
     mutationFn: (optionId: string) =>
-      api('/playback/stream', {
-        method: 'POST',
-        body: {
-          optionId,
-          title: { type, id: videoId },
-          ...(resumeAt !== undefined && !resume ? { resume: false } : {}),
-        },
-      }),
-    onMutate: begin,
-    onSuccess: arm,
+      inBrowser
+        ? browser.start({
+            optionId,
+            title: { type, id: videoId },
+            name: playerName ?? heading,
+            ...(resumeAt !== undefined && !resume ? { resume: false } : {}),
+            ...(startAtMs !== undefined ? { startMs: startAtMs } : {}),
+          })
+        : api('/playback/stream', {
+            method: 'POST',
+            body: {
+              optionId,
+              title: { type, id: videoId },
+              ...(resumeAt !== undefined && !resume ? { resume: false } : {}),
+            },
+          }),
+    onMutate: () => {
+      if (!inBrowser) begin();
+    },
+    onSuccess: () => {
+      if (!inBrowser) arm();
+    },
     onError: (e) => {
       // 410: the list is older than the server remembers; fetch it again.
       if (e instanceof ApiError && e.status === 410) void sources.refetch();
@@ -170,6 +229,26 @@ export function SourcePicker({
       api('/queue', { method: 'POST', body: { optionId, title: { type, id: videoId } } }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['queue'] }),
   });
+
+  const external = useOpenInPlayer();
+  const openExternal = (o: StreamOption) => {
+    // The same warning as for playing: an uncached link can start a download on the account.
+    if (o.cached === false && confirming !== o.id) return setConfirming(o.id);
+    setConfirming(undefined);
+    void external.open(
+      () =>
+        api<ExternalSession>('/browser-play/external', {
+          method: 'POST',
+          body: {
+            optionId: o.id,
+            title: { type, id: videoId },
+            ...(resumeAt !== undefined && !resume ? { resume: false } : {}),
+            ...(startAtMs !== undefined ? { startMs: startAtMs } : {}),
+          },
+        }),
+      o.title,
+    );
+  };
 
   const choose = (o: StreamOption) => {
     // An uncached link can start a download on the debrid account: ask once more first.
@@ -227,6 +306,44 @@ export function SourcePicker({
       <h2 className="text-xl leading-snug font-semibold wrap-anywhere">
         {embedded ? t('sources.title') : heading}
       </h2>
+      {handoff && (
+        <p role="note" className="rounded-2xl border border-border bg-surface-secondary p-3">
+          {t(handoff.direction === 'here' ? 'handoff.pickHere' : 'handoff.pickTv', {
+            position: formatTime(handoff.positionMs),
+          })}
+          {handoff.reason && <span className="block text-sm text-muted">{handoff.reason}</span>}
+          <span className="block text-sm text-muted">{t('handoff.pickExternal')}</span>
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted" id="play-on-label">
+          {t('sources.playOn')}
+        </span>
+        <ToggleButtonGroup
+          aria-labelledby="play-on-label"
+          selectionMode="single"
+          disallowEmptySelection
+          size="sm"
+          selectedKeys={[target]}
+          onSelectionChange={(keys) => {
+            const next = [...keys][0];
+            if (next === 'browser') setTarget('browser');
+            // TV follows the gate: a guest is sent to pairing and stays on this device.
+            else if (next === 'tv') tv.guard(() => setTarget('tv'))();
+          }}
+        >
+          <ToggleButton id="tv" isDisabled={kodiDown || tv.state === 'unavailable'}>
+            {t('sources.targetTv')}
+          </ToggleButton>
+          <ToggleButton id="browser">
+            <ToggleButtonGroup.Separator />
+            {t('sources.targetBrowser')}
+          </ToggleButton>
+        </ToggleButtonGroup>
+        {(kodiDown || tv.state === 'unavailable') && (
+          <span className="w-full text-sm text-muted">{t('tvGate.kodiDown')}</span>
+        )}
+      </div>
       {resumeAt !== undefined && (
         <div className="flex items-center gap-3 rounded-2xl border border-border bg-surface-secondary p-3">
           <span
@@ -307,6 +424,7 @@ export function SourcePicker({
               {t('sources.someFailed', { names: result.sourceErrors.join(', ') })}
             </Chip>
           )}
+          {external.fallback && <OpenInPlayerFallback launch={external.fallback} />}
           <SourceFilters choices={choices} filters={filters} onChange={setFilters} />
           {result.options.length === 0 && <p className="text-muted">{t('sources.none')}</p>}
           {result.options.length > 0 && shown.length === 0 && (
@@ -324,6 +442,12 @@ export function SourcePicker({
           <ul className="grid gap-2">
             {shown.map((o, i) => {
               const audio = audioOf(o);
+              // Unknown video facts stay playable: the server reads the file when it starts.
+              const mode =
+                inBrowser && o.video?.codec
+                  ? playbackMode(o.video, caps, { transcode: canConvert })
+                  : undefined;
+              const tvOnly = mode === 'unsupported';
               return (
                 <li key={o.id} data-option-id={o.id} ref={observe}>
                   <Card
@@ -335,7 +459,7 @@ export function SourcePicker({
                       <Button
                         variant="secondary"
                         className="h-auto min-h-12 w-full flex-col items-start justify-start gap-2 rounded-[16px] px-3 py-2 text-left whitespace-normal wrap-anywhere"
-                        isDisabled={!o.playable || busy}
+                        isDisabled={!o.playable || busy || tvOnly}
                         onPress={() => choose(o)}
                         aria-describedby={`why-${o.id}`}
                       >
@@ -348,6 +472,16 @@ export function SourcePicker({
                               {text}
                             </Chip>
                           ))}
+                          {tvOnly && (
+                            <Chip size="sm" variant="soft" color="warning">
+                              {t('sources.tvOnly')}
+                            </Chip>
+                          )}
+                          {mode === 'transcode' && (
+                            <Chip size="sm" variant="soft" color="warning">
+                              {t('sources.willConvert')}
+                            </Chip>
+                          )}
                           {audio === 'checking' && (
                             <Chip size="sm" variant="soft" role="status">
                               <Spinner size="sm" />
@@ -356,9 +490,9 @@ export function SourcePicker({
                           )}
                         </span>
                         {o.reason && <span className="text-muted">{o.reason}</span>}
-                        {o.playable && (
+                        {o.playable && !tvOnly && (
                           <span aria-hidden="true" className="text-sm font-medium text-accent">
-                            {t('sources.playOnTv')}
+                            {inBrowser ? t('sources.playHere') : t('sources.playOnTv')}
                           </span>
                         )}
                         {confirming === o.id && (
@@ -368,7 +502,18 @@ export function SourcePicker({
                         )}
                       </Button>
                     </Card.Content>
-                    {o.playable && (
+                    {o.playable && (inBrowser || tvOnly) && (
+                      <Card.Footer className="justify-end">
+                        <Button
+                          variant={tvOnly ? 'primary' : 'secondary'}
+                          isDisabled={external.busy}
+                          onPress={() => openExternal(o)}
+                        >
+                          {t('external.open')}
+                        </Button>
+                      </Card.Footer>
+                    )}
+                    {o.playable && !inBrowser && (
                       <Card.Footer className="justify-end">
                         <Button
                           variant="secondary"

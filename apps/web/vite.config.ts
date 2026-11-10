@@ -14,5 +14,11 @@ export default defineConfig({
     },
   },
   server: { proxy: { '/api': 'http://127.0.0.1:8787' } },
-  test: { environment: 'jsdom', globals: true, setupFiles: ['./src/setup-tests.ts'] },
+  // Generous: the app-level specs render the whole shell and run beside the API's 55 workers in `pnpm test`.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/setup-tests.ts'],
+    testTimeout: 20_000,
+  },
 });

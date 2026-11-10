@@ -5,7 +5,9 @@ import { api } from '../api/client.js';
 import { episodeLine } from '../format.js';
 import { useLive } from '../state/live.js';
 import { useQueue } from '../state/queue.js';
+import { useTvAccess } from '../state/use-tv-access.js';
 import { PauseIcon, PlayIcon } from './icons.js';
+import { useHandoff } from './use-handoff.js';
 
 /**
  * A bar above the tab bar while a video is active; tapping it opens the Remote sheet. With
@@ -19,10 +21,45 @@ export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
   });
   const client = useQueryClient();
   const { items } = useQueue();
+  const handoff = useHandoff();
+  // A guest sees the TV's status, but every control goes through pairing (or is disabled).
+  const tv = useTvAccess();
+  const locked = tv.state === 'unavailable';
   const startQueue = useMutation({
     mutationFn: () => api('/queue/next', { method: 'POST' }),
     onSettled: () => client.invalidateQueries({ queryKey: ['queue'] }),
   });
+  if (!status?.active && handoff.elsewhere) {
+    const there = handoff.elsewhere;
+    return (
+      <Card className="h-16 w-full max-w-105 flex-row items-center gap-3 rounded-2xl px-4 py-0 shadow-lg">
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-semibold">
+            {there.media?.name ?? t('common.untitled')}
+          </span>
+          <span className="truncate text-sm text-muted">
+            {t('handoff.playingOn', { device: there.deviceName })}
+          </span>
+        </span>
+        <Button
+          variant="primary"
+          aria-label={t('handoff.continueHere')}
+          isDisabled={handoff.busy || locked}
+          onPress={tv.guard(() => void handoff.continueHere())}
+        >
+          {t('handoff.here')}
+        </Button>
+        <Button
+          variant="secondary"
+          aria-label={t('handoff.sendToTv')}
+          isDisabled={handoff.busy || locked}
+          onPress={tv.guard(() => void handoff.sendToTv())}
+        >
+          {t('handoff.tv')}
+        </Button>
+      </Card>
+    );
+  }
   if (!status?.active) {
     const [next] = items;
     if (!next) return null;
@@ -66,17 +103,27 @@ export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
         variant="ghost"
         className="h-12 min-w-0 flex-1 justify-start rounded-[16px] px-3"
         aria-label={t('miniPlayer.nowPlaying', { title })}
-        onPress={onOpen}
+        onPress={tv.guard(onOpen)}
       >
         <span className="flex min-w-0 flex-col items-start">
           <span className="max-w-full truncate font-semibold">{title}</span>
           {detail && <span className="max-w-full truncate text-sm text-muted">{detail}</span>}
         </span>
       </Button>
+      {status.media && (
+        <Button
+          variant="secondary"
+          aria-label={t('handoff.continueHere')}
+          isDisabled={handoff.busy || locked}
+          onPress={tv.guard(() => void handoff.continueHere())}
+        >
+          {t('handoff.here')}
+        </Button>
+      )}
       <Button
         variant="primary"
-        isDisabled={toggle.isPending}
-        onPress={() => toggle.mutate(paused ? '/resume' : '/pause')}
+        isDisabled={toggle.isPending || locked}
+        onPress={tv.guard(() => toggle.mutate(paused ? '/resume' : '/pause'))}
       >
         {paused ? <PlayIcon /> : <PauseIcon />}
         {paused ? t('common.play') : t('common.pause')}

@@ -19,7 +19,7 @@ const BODIES: Record<string, z.ZodType> = {
   '/api/player/audio': AudioSchema,
   '/api/player/subtitle': SubtitleSchema,
 };
-const PUBLIC_PATHS = ['/api/health', '/api/pairing/start', '/api/pairing/complete'];
+const PUBLIC_PATHS = ['/api/health', '/api/pairing/start', '/api/pairing/complete', '/api/guest'];
 
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const document = SwaggerModule.createDocument(

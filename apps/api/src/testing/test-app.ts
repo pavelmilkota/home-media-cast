@@ -1,6 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../app.module.js';
+import { MEDIA_DIR, PROCESS_SPAWN } from '../browser-play/browser-play.module.js';
+import type { SpawnFn } from '../browser-play/ffmpeg.js';
 import { configureApp } from '../configure-app.js';
 import { DbService } from '../db/db.service.js';
 import { serveWeb } from '../serve-web.js';
@@ -8,6 +13,8 @@ import { KodiService } from '../kodi/kodi.service.js';
 import { PlayerStatusService } from '../player/player-status.service.js';
 import { FakeKodiServer } from '../kodi/testing/fake-kodi.server.js';
 import { JsonFileDataStore } from '../youtube/json-file-data-store.js';
+import { AppLogBuffer } from '../logs/app-log.buffer.js';
+import { KodiLogService } from '../logs/kodi-log.service.js';
 import { KodiRestartService } from '../tv/kodi-restart.service.js';
 import { YoutubeService } from '../youtube/youtube.service.js';
 
@@ -41,13 +48,22 @@ export async function createTestApp(
     startKodi = true,
     webDir,
     restart = new KodiRestartService(undefined),
+    kodiLogDir,
+    logBuffer = new AppLogBuffer(),
     db = new DbService(':memory:'),
+    spawn,
   }: {
     startKodi?: boolean;
     webDir?: string;
     restart?: KodiRestartService;
+    /** Directory with a fabricated `kodi.log` for the Logs page. */
+    kodiLogDir?: string;
+    /** Receives the app's warnings and errors; a fresh one per test app. */
+    logBuffer?: AppLogBuffer;
     /** Pass a file-backed DB to look at state across an "API restart". */
     db?: DbService;
+    /** Replaces `ffmpeg` and `ffprobe` for browser playback; without it they would really run. */
+    spawn?: SpawnFn;
   } = {},
 ): Promise<TestApp> {
   const kodi = new FakeKodiServer();
@@ -62,7 +78,14 @@ export async function createTestApp(
     reconnectMaxDelayMs: 50,
     unreachableAfterFailures: 2,
   });
+  // Each test app gets its own media directory: the service empties it at startup.
+  const mediaDir = mkdtempSync(join(tmpdir(), 'hmc-media-test-'));
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .setLogger(logBuffer)
+    .overrideProvider(AppLogBuffer)
+    .useValue(logBuffer)
+    .overrideProvider(KodiLogService)
+    .useValue(new KodiLogService(kodiLogDir))
     .overrideProvider(DbService)
     .useValue(db)
     .overrideProvider(KodiService)
@@ -71,6 +94,15 @@ export async function createTestApp(
     .useFactory({
       factory: () => new PlayerStatusService(kodiService, { pollIntervalMs: 40, debounceMs: 5 }),
     })
+    .overrideProvider(MEDIA_DIR)
+    .useValue(mediaDir)
+    .overrideProvider(PROCESS_SPAWN)
+    .useValue(
+      spawn ??
+        (() => {
+          throw new Error('No ffmpeg in this test app: pass `spawn` to createTestApp');
+        }),
+    )
     .overrideProvider(KodiRestartService)
     .useValue(restart)
     .overrideProvider(YoutubeService)
@@ -100,6 +132,7 @@ export async function createTestApp(
     async close() {
       await app.close();
       await kodi.stop();
+      rmSync(mediaDir, { recursive: true, force: true });
     },
     async http(method, path, { token, body } = {}) {
       const res = await fetch(base + path, {

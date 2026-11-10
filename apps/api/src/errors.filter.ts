@@ -13,6 +13,12 @@ import {
   SourceUnavailableError,
 } from './aiostreams/aiostreams.client.js';
 import { MetadataUnavailableError, TitleNotFoundError } from './catalog/cinemeta.client.js';
+import {
+  BrowserUnavailableError,
+  BrowserUnsupportedError,
+} from './browser-play/browser-session.service.js';
+import { GuestDisabledError, GuestForbiddenError } from './auth/guest.errors.js';
+import { HandoffPickSourceError } from './browser-play/handoff.service.js';
 import { UrlRejectedError } from './playback/url-guard.js';
 import { RestartRateLimitedError, RestartUnavailableError } from './tv/kodi-restart.service.js';
 import { QueueFullError } from './sources/queue.service.js';
@@ -23,11 +29,33 @@ interface Mapped {
   status: number;
   error: string;
   message: string;
+  /** Extra fields of the body. */
+  extra?: Record<string, unknown>;
 }
 
 function map(e: unknown): Mapped | undefined {
+  if (e instanceof GuestForbiddenError) {
+    return { status: 403, error: 'guest_forbidden', message: e.message };
+  }
+  if (e instanceof GuestDisabledError) {
+    return { status: 403, error: 'guest_disabled', message: e.message };
+  }
   if (e instanceof UrlRejectedError || e instanceof KodiInvalidUrlError) {
     return { status: 422, error: 'url_rejected', message: e.message };
+  }
+  if (e instanceof HandoffPickSourceError) {
+    return {
+      status: 409,
+      error: 'handoff_pick_source',
+      message: e.message,
+      extra: { pick: e.pick },
+    };
+  }
+  if (e instanceof BrowserUnsupportedError) {
+    return { status: 409, error: 'browser_unsupported', message: e.message };
+  }
+  if (e instanceof BrowserUnavailableError) {
+    return { status: 503, error: 'browser_unavailable', message: e.message };
   }
   if (e instanceof OptionExpiredError) {
     return { status: 410, error: 'option_expired', message: e.message };
@@ -97,12 +125,17 @@ function map(e: unknown): Mapped | undefined {
 
 /** Turns backend-domain errors into clear HTTP errors. Nest handles everything else. */
 @Catch(
+  GuestForbiddenError,
+  GuestDisabledError,
   UrlRejectedError,
   KodiInvalidUrlError,
   KodiNoActivePlayerError,
   KodiUnavailableError,
   KodiTimeoutError,
   KodiRpcError,
+  HandoffPickSourceError,
+  BrowserUnsupportedError,
+  BrowserUnavailableError,
   OptionExpiredError,
   StreamLinkError,
   SourceNotConfiguredError,
@@ -118,11 +151,11 @@ function map(e: unknown): Mapped | undefined {
 )
 export class DomainErrorFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
-    const { status, error, message } = map(exception)!;
+    const { status, error, message, extra } = map(exception)!;
     host
       .switchToHttp()
       .getResponse<Response>()
       .status(status)
-      .json({ statusCode: status, error, message });
+      .json({ statusCode: status, error, message, ...extra });
   }
 }

@@ -21,13 +21,74 @@ afterEach(() => {
 
 const pair = () => auth.set('TOKEN123');
 
-describe('pairing', () => {
-  it('shows the pairing screen when the device has no token', async () => {
+const guestsOff = () =>
+  backend.on('POST /guest', {
+    status: 403,
+    body: { error: 'guest_disabled', message: 'Guest access is switched off' },
+  });
+const guestOk = (token = 'GUESTTOKEN') =>
+  backend.on('POST /guest', { status: 200, body: { deviceId: 'g1', token } });
+
+describe('guest bootstrap', () => {
+  it('registers a guest with no token and lands on Home, not on pairing', async () => {
+    guestOk();
     await renderApp();
-    expect(screen.getByRole('heading', { name: 'Home Media Cast' })).toBeInTheDocument();
+    expect(await screen.findByRole('tablist', { name: 'Sections' })).toBeInTheDocument();
+    expect(backend.callsTo('POST /guest')).toHaveLength(1);
+    expect(backend.callsTo('POST /guest')[0]?.authorization).toBeUndefined();
+    expect(auth.get()).toBe('GUESTTOKEN');
+    expect(auth.kind()).toBe('guest');
+    await waitFor(() => expect(backend.eventRequests[0]?.authorization).toBe('Bearer GUESTTOKEN'));
+  });
+
+  it('keeps a stored token without a kind as a paired one, with no call to /guest', async () => {
+    localStorage.setItem('hmc.token', 'OLD');
+    localStorage.removeItem('hmc.tokenKind');
+    pair();
+    await renderApp();
+    expect(await screen.findByRole('tablist', { name: 'Sections' })).toBeInTheDocument();
+    expect(backend.callsTo('POST /guest')).toHaveLength(0);
+    expect(auth.kind()).toBe('paired');
+  });
+
+  it('shows the pairing screen when the server has guests switched off', async () => {
+    guestsOff();
+    await renderApp();
+    expect(await screen.findByRole('button', { name: 'Show code on TV' })).toBeInTheDocument();
     expect(screen.queryByRole('tablist', { name: 'Sections' })).not.toBeInTheDocument();
     expect(backend.eventRequests).toHaveLength(0);
   });
+
+  it('shows a retry on a network error or a 429, and registers once it works', async () => {
+    let n = 0;
+    backend.on('POST /guest', () =>
+      ++n === 1
+        ? { status: 429, body: { message: 'Too many new devices' } }
+        : { status: 200, body: { deviceId: 'g1', token: 'GUESTTOKEN' } },
+    );
+    await renderApp();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot reach Home Media Cast');
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('tablist', { name: 'Sections' })).toBeInTheDocument();
+    expect(backend.callsTo('POST /guest')).toHaveLength(2);
+  });
+
+  it('a 401 on the stream clears the token and leads to exactly one new registration', async () => {
+    backend.on('POST /guest', () => {
+      backend.eventsStatus = 200; // the new token is good
+      return { status: 200, body: { deviceId: 'g2', token: 'SECOND' } };
+    });
+    auth.set('REVOKED', 'guest');
+    backend.eventsStatus = 401;
+    await renderApp();
+    await waitFor(() => expect(auth.get()).toBe('SECOND'));
+    expect(backend.callsTo('POST /guest')).toHaveLength(1);
+    expect(await screen.findByRole('tablist', { name: 'Sections' })).toBeInTheDocument();
+  });
+});
+
+describe('pairing', () => {
+  beforeEach(guestsOff);
 
   it('asks the TV for a code without sending any token', async () => {
     backend.on('POST /pairing/start', { status: 200, body: { expiresInSeconds: 300 } });
@@ -110,6 +171,7 @@ describe('connection', () => {
 
   it('signs the device out when the backend says the token was revoked', async () => {
     pair();
+    guestsOff();
     backend.eventsStatus = 401;
     await renderApp();
     expect(await screen.findByRole('button', { name: 'Show code on TV' })).toBeInTheDocument();
@@ -499,9 +561,11 @@ describe('devices', () => {
     backend.on('DELETE /devices/me', { status: 204 });
     await openDevices();
     await userEvent.click(await screen.findByRole('button', { name: 'Revoke Pixel' }));
+    guestOk('AFTERREVOKE');
     await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
-    expect(await screen.findByRole('button', { name: 'Show code on TV' })).toBeInTheDocument();
-    expect(auth.get()).toBeNull();
+    // A revoked device is not locked out: it registers again, as a guest.
+    await waitFor(() => expect(auth.get()).toBe('AFTERREVOKE'));
+    expect(auth.kind()).toBe('guest');
   });
 });
 

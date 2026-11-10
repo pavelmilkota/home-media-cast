@@ -1,7 +1,13 @@
-import type { AudioTrack } from '@home-media-cast/shared';
+import type { AudioTrack, VideoFacts } from '@home-media-cast/shared';
+
+/** What the header of a file says about its tracks. `video` is absent when it names none. */
+export interface ProbedTracks {
+  audio: AudioTrack[];
+  video?: VideoFacts;
+}
 
 /**
- * Reads the audio tracks out of the first bytes of a video file (Matroska/WebM or MP4/MOV),
+ * Reads the audio tracks and the video facts out of the first bytes of a video file (Matroska/WebM or MP4/MOV),
  * through ranged reads, so a file is never downloaded. The bytes come from a remote server and
  * are untrusted: every length is bounded and every string is cut.
  */
@@ -64,6 +70,13 @@ const MKV = {
   name: 0x536e,
   audio: 0xe1,
   channels: 0x9f,
+  video: 0xe0,
+  pixelHeight: 0xba,
+  colour: 0x55b0,
+  bitsPerChannel: 0x55b2,
+  transfer: 0x55ba,
+  codecPrivate: 0x63a2,
+  blockAdditionMapping: 0x41e4,
 } as const;
 
 interface Header {
@@ -118,10 +131,50 @@ function mkvChildren(
   }
 }
 
-function mkvTracks(b: Buffer): AudioTrack[] {
+/** Transfer characteristics 16 (PQ) and 18 (HLG): what a screen needs HDR support for. */
+const HDR_TRANSFER = new Set([16, 18]);
+
+interface VideoDraft {
+  codecId?: string | undefined;
+  height?: number | undefined;
+  bits?: number | undefined;
+  transfer?: number | undefined;
+  dolbyVision?: boolean | undefined;
+  /** Profile byte of the `avcC` / `hvcC` record. */
+  profile?: number | undefined;
+}
+
+/** Turns what a header said into `VideoFacts`; fields it did not say stay absent. */
+function videoFacts(codec: VideoFacts['codec'], d: VideoDraft): VideoFacts {
+  let bitDepth = d.bits;
+  if (bitDepth === undefined && d.profile !== undefined) {
+    if (codec === 'hevc') bitDepth = d.profile === 2 ? 10 : d.profile === 1 ? 8 : undefined;
+    else if (codec === 'h264')
+      bitDepth = d.profile === 110 ? 10 : [66, 77, 88, 100].includes(d.profile) ? 8 : undefined;
+  }
+  const hdr10 = d.transfer !== undefined && HDR_TRANSFER.has(d.transfer);
+  return {
+    ...(codec ? { codec } : {}),
+    ...(d.height && d.height > 0 && d.height < 20000 ? { height: d.height } : {}),
+    ...(bitDepth ? { bitDepth } : {}),
+    // Dolby Vision on a PQ base layer (profiles 7, 8.1) plays as HDR10 on a screen without DV.
+    hdr: d.dolbyVision ? (hdr10 ? 'dv-fallback' : 'dv') : hdr10 ? 'hdr10' : 'none',
+  };
+}
+
+const MKV_VIDEO_CODECS: [RegExp, NonNullable<VideoFacts['codec']>][] = [
+  [/^V_MPEG4\/ISO\/AVC/, 'h264'],
+  [/^V_MPEGH\/ISO\/HEVC/, 'hevc'],
+  [/^V_VP9/, 'vp9'],
+  [/^V_AV1/, 'av1'],
+];
+
+function mkvTracks(b: Buffer): ProbedTracks {
   const tracks: AudioTrack[] = [];
+  let video: VideoFacts | undefined;
+  let seen = 0;
   mkvChildren(b, 0, b.length, (h, at) => {
-    if (h.id !== MKV.trackEntry || tracks.length >= MAX_TRACKS) return;
+    if (h.id !== MKV.trackEntry || seen++ >= MAX_TRACKS) return;
     const end = Math.min(at + (h.size as number), b.length);
     let type = 0;
     let codec: string | undefined;
@@ -129,6 +182,7 @@ function mkvTracks(b: Buffer): AudioTrack[] {
     let bcp47: string | undefined;
     let title: string | undefined;
     let channels: number | undefined;
+    const draft: VideoDraft = {};
     mkvChildren(b, at, end, (c, cat) => {
       const body = b.subarray(cat, Math.min(cat + (c.size as number), end));
       if (c.id === MKV.trackType) type = uint(body);
@@ -136,16 +190,42 @@ function mkvTracks(b: Buffer): AudioTrack[] {
       else if (c.id === MKV.language) lang = text(body) ?? lang;
       else if (c.id === MKV.languageBcp47) bcp47 = text(body);
       else if (c.id === MKV.name) title = text(body);
-      else if (c.id === MKV.audio) {
+      else if (c.id === MKV.codecPrivate) draft.profile = body[1];
+      else if (c.id === MKV.blockAdditionMapping) {
+        mkvChildren(body, 0, body.length, (m, mat) => {
+          // BlockAddIDType: 'dvcC' or 'dvvC' is the Dolby Vision configuration record.
+          if (m.id === 0x41e7) {
+            const t = uint(body.subarray(mat, mat + (m.size as number)));
+            if (t === 0x64766343 || t === 0x64767643) draft.dolbyVision = true;
+          }
+        });
+      } else if (c.id === MKV.audio) {
         mkvChildren(body, 0, body.length, (a, aat) => {
           if (a.id === MKV.channels) channels = uint(body.subarray(aat, aat + (a.size as number)));
         });
+      } else if (c.id === MKV.video) {
+        mkvChildren(body, 0, body.length, (v, vat) => {
+          const vb = body.subarray(vat, vat + (v.size as number));
+          if (v.id === MKV.pixelHeight) draft.height = uint(vb);
+          else if (v.id === MKV.colour) {
+            mkvChildren(vb, 0, vb.length, (k, kat) => {
+              const kb = vb.subarray(kat, kat + (k.size as number));
+              if (k.id === MKV.transfer) draft.transfer = uint(kb);
+              else if (k.id === MKV.bitsPerChannel) draft.bits = uint(kb) || undefined;
+            });
+          }
+        });
       }
     });
-    if (type !== 2) return;
-    tracks.push(track({ code: bcp47 ?? lang, codec: mkvCodec(codec), channels, title }));
+    if (type === 1 && !video) {
+      draft.codecId = codec;
+      const family = MKV_VIDEO_CODECS.find(([re]) => re.test(codec ?? ''))?.[1];
+      video = videoFacts(codec ? (family ?? 'other') : undefined, draft);
+    } else if (type === 2 && tracks.length < MAX_TRACKS) {
+      tracks.push(track({ code: bcp47 ?? lang, codec: mkvCodec(codec), channels, title }));
+    }
   });
-  return tracks;
+  return { audio: tracks, ...(video ? { video } : {}) };
 }
 
 const MKV_CODECS: [RegExp, string][] = [
@@ -162,7 +242,7 @@ const MKV_CODECS: [RegExp, string][] = [
 const mkvCodec = (id: string | undefined): string | undefined =>
   id ? (MKV_CODECS.find(([re]) => re.test(id))?.[1] ?? id.replace(/^A_/, '')) : undefined;
 
-async function probeMatroska(read: RangeReader): Promise<AudioTrack[]> {
+async function probeMatroska(read: RangeReader): Promise<ProbedTracks> {
   const top = await read(0, 64);
   const ebml = ebmlHeader(top, 0);
   if (!ebml || ebml.size === undefined) throw new UnreadableContainerError('Bad EBML header');
@@ -204,6 +284,48 @@ interface Mp4Track {
   code?: string;
   codec?: string;
   channels?: number;
+  video?: VideoFacts;
+}
+
+const MP4_VIDEO_CODECS: Record<string, NonNullable<VideoFacts['codec']>> = {
+  avc1: 'h264',
+  avc3: 'h264',
+  hvc1: 'hevc',
+  hev1: 'hevc',
+  dvh1: 'hevc',
+  dvhe: 'hevc',
+  vp09: 'vp9',
+  av01: 'av1',
+  dav1: 'av1',
+};
+
+/** The video sample entry of an `stsd` box body (the box's children start 94 bytes in). */
+function mp4Video(b: Buffer): VideoFacts {
+  const format = b.toString('latin1', 12, 16);
+  const draft: VideoDraft = {
+    height: b.length >= 44 ? b.readUInt16BE(42) : undefined,
+    dolbyVision: format === 'dvh1' || format === 'dvhe' || format === 'dav1' || undefined,
+  };
+  let at = 94;
+  for (let i = 0; i < 16 && at + 8 <= b.length; i++) {
+    const size = b.readUInt32BE(at);
+    const type = b.toString('latin1', at + 4, at + 8);
+    if (size < 8) break;
+    const body = at + 8;
+    if ((type === 'avcC' || type === 'hvcC') && body + 2 <= b.length) {
+      draft.profile = type === 'hvcC' ? (b[body + 1] as number) & 0x1f : (b[body + 1] as number);
+    } else if (type === 'dvcC' || type === 'dvvC') {
+      draft.dolbyVision = true;
+    } else if (
+      type === 'colr' &&
+      body + 10 <= b.length &&
+      b.toString('latin1', body, body + 4) === 'nclx'
+    ) {
+      draft.transfer = b.readUInt16BE(body + 6);
+    }
+    at += size;
+  }
+  return videoFacts(MP4_VIDEO_CODECS[format] ?? 'other', draft);
 }
 
 /** The packed ISO 639-2/T code of an `mdhd` box: a pad bit, then three 5-bit letters. */
@@ -219,7 +341,7 @@ function mdhdLanguage(b: Buffer): string | undefined {
   return /^[a-z]{3}$/.test(code) ? code : undefined;
 }
 
-async function probeMp4(read: RangeReader): Promise<AudioTrack[]> {
+async function probeMp4(read: RangeReader): Promise<ProbedTracks> {
   const tracks: Mp4Track[] = [];
 
   const walk = async (start: number, end: number, current?: Mp4Track): Promise<void> => {
@@ -252,8 +374,10 @@ async function probeMp4(read: RangeReader): Promise<AudioTrack[]> {
         const b = await read(body, 12);
         if (b.length >= 12) current.handler = b.toString('latin1', 8, 12);
       } else if (current && type === 'stsd') {
-        const b = await read(body, 40);
-        if (b.length >= 34) {
+        const b = await read(body, current.handler === 'vide' ? Math.min(256, bodyEnd - body) : 40);
+        if (current.handler === 'vide') {
+          if (b.length >= 44) current.video = mp4Video(b);
+        } else if (b.length >= 34) {
           const format = b.toString('latin1', 12, 16);
           current.codec = MP4_CODECS[format] ?? format.trim();
           current.channels = b.readUInt16BE(32) || undefined;
@@ -274,9 +398,13 @@ async function probeMp4(read: RangeReader): Promise<AudioTrack[]> {
     if (size === 1) size = Number(head.readBigUInt64BE(8));
     if (type === 'moov') {
       await walk(at + header, at + size);
-      return tracks
-        .filter((t) => t.handler === 'soun')
-        .map((t) => track({ code: t.code, codec: t.codec, channels: t.channels }));
+      const video = tracks.find((t) => t.handler === 'vide')?.video;
+      return {
+        audio: tracks
+          .filter((t) => t.handler === 'soun')
+          .map((t) => track({ code: t.code, codec: t.codec, channels: t.channels })),
+        ...(video ? { video } : {}),
+      };
     }
     if (size < header) break; // size 0 means "to the end", with no moov seen
     at += size;
@@ -320,15 +448,19 @@ export function languageName(code: string | undefined): string | undefined {
 }
 
 /**
- * The audio tracks of a Matroska or MP4 file. Throws `UnreadableContainerError` for anything
- * else (AVI, TS...) or a file whose track list is not near the start (or end, for MP4).
+ * The audio tracks and the video facts of a Matroska or MP4 file. Throws `UnreadableContainerError`
+ * for anything else (AVI, TS...) or a file whose track list is not near the start (or end, for MP4).
  */
-export async function probeAudio(read: RangeReader): Promise<AudioTrack[]> {
+export async function probeTracks(read: RangeReader): Promise<ProbedTracks> {
   const cached = blocked(read);
   const head = await cached(0, 16);
   if (head.length >= 4 && head.readUInt32BE(0) === MKV.ebml) return probeMatroska(cached);
   if (head.length >= 8 && /^(ftyp|moov|mdat|free|skip|wide)$/.test(head.toString('latin1', 4, 8))) {
     return probeMp4(cached);
   }
-  throw new UnreadableContainerError('Not Matroska or MP4');
+  // The first bytes tell an error page (text) from a container we do not read (AVI, TS).
+  const sample = head.subarray(0, 8);
+  throw new UnreadableContainerError(
+    `Not Matroska or MP4 (starts ${sample.toString('hex')} "${sample.toString('latin1').replace(/[^\x20-\x7e]/g, '.')}")`,
+  );
 }

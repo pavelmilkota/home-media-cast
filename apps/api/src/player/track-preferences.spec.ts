@@ -83,4 +83,35 @@ describe('TrackPreferences', () => {
     make().forPlayback()(status({ subtitleEnabled: true, currentSubtitle: 1 }));
     expect(commands.setSubtitle).toHaveBeenCalledExactlyOnceWith('off');
   });
+
+  describe('shared with the browser player', () => {
+    const tracks = [
+      { language: 'ukr', name: 'Dub', index: 0 },
+      { language: 'eng', name: '', index: 1 },
+    ];
+
+    it('a browser choice is applied to Kodi, and a Kodi choice to the browser', async () => {
+      make().choices.setAudio({ language: 'eng', name: 'AC3' }); // picked in the browser
+      make().forPlayback()(status());
+      expect(commands.setAudioStream).toHaveBeenCalledExactlyOnceWith(1);
+
+      vi.clearAllMocks();
+      await make().rememberAudio(0); // picked on the TV: Russian
+      const want = make().choices.audio;
+      expect(want).toEqual({ language: 'rus', name: 'AAC' });
+      expect(matchStream(tracks, want as { language: string; name: string })).toBeUndefined();
+    });
+
+    it('matches browser tracks by language, then by name', () => {
+      expect(matchStream(tracks, { language: 'eng', name: 'Other' })?.index).toBe(1);
+      expect(matchStream(tracks, { language: 'ukr', name: 'Dub' })?.index).toBe(0);
+    });
+
+    it('remembers subtitles off from the browser too', () => {
+      const choices = make().choices;
+      choices.setSubtitle({ language: 'eng', name: '' });
+      choices.setSubtitle('off');
+      expect(make().choices.subtitle).toBe('off');
+    });
+  });
 });

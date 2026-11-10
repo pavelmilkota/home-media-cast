@@ -148,6 +148,7 @@ describe('audio probe (e2e)', () => {
         { language: 'English', codec: 'AAC', channels: 2 },
       ],
       languages: ['Ukrainian', 'English'],
+      video: { codec: 'h264', hdr: 'none' },
     } satisfies AudioProbeResponse);
     // Header reads only, as ranges, with the provider's own token.
     expect(hits.length).toBeGreaterThan(0);

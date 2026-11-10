@@ -6,6 +6,8 @@ import type {
   EpisodeInfo,
   AdjacentEpisodes,
   EpisodeRef,
+  HistoryEntry,
+  LibraryResponse,
   SearchResponse,
   TitleDetail,
   TitleState,
@@ -162,8 +164,77 @@ export class CatalogService {
     }
   }
 
+  /**
+   * The library, where a series whose last episode is finished continues with the next aired one.
+   * A metadata outage only leaves those cards out.
+   */
+  async libraryOverview(): Promise<LibraryResponse> {
+    const overview = this.library.overview();
+    const next = await Promise.all(
+      this.library.finishedSeries().map(async (done): Promise<HistoryEntry | undefined> => {
+        try {
+          const target = await this.afterFurthestWatched(done.id);
+          return target
+            ? {
+                id: done.id,
+                type: done.type,
+                name: done.name,
+                ...(done.year ? { year: done.year } : {}),
+                ...(done.poster ? { poster: done.poster } : {}),
+                videoId: target.videoId,
+                label: target.label,
+                watched: false,
+                progress: 0,
+                lastPlayedAt: done.lastPlayedAt,
+              }
+            : undefined;
+        } catch (e) {
+          if (e instanceof MetadataUnavailableError) return undefined;
+          throw e;
+        }
+      }),
+    );
+    const continueWatching = [...overview.continueWatching, ...next.flatMap((e) => e ?? [])]
+      .sort((a, b) => b.lastPlayedAt - a.lastPlayedAt)
+      .slice(0, 20);
+    return { ...overview, continueWatching };
+  }
+
+  /** The first aired, unwatched episode after the furthest one watched (marking can be out of order). */
+  private async afterFurthestWatched(titleId: string): Promise<EpisodeRef | undefined> {
+    const meta = await this.meta.meta('series', titleId);
+    const watched = new Set(
+      this.library
+        .progressOf(titleId)
+        .filter((p) => p.watched)
+        .map((p) => p.videoId),
+    );
+    const aired = meta.videos.filter(
+      (v) => v.season > 0 && !(v.firstAired && Date.parse(v.firstAired) > Date.now()),
+    );
+    const furthest = aired.map((v) => watched.has(v.id)).lastIndexOf(true);
+    const next = aired.slice(furthest + 1).find((v) => !watched.has(v.id));
+    return next
+      ? {
+          videoId: next.id,
+          seriesName: meta.name,
+          label: `S${next.season}E${next.episode} · ${next.name}`,
+        }
+      : undefined;
+  }
+
   resumePoint(videoId: string): number | undefined {
     return this.library.resumePoint(videoId);
+  }
+
+  /** Stores a position reported by a player other than Kodi. */
+  recordProgress(input: ProgressInput): void {
+    this.library.record(input);
+  }
+
+  /** Remembers the release started for a video (host only). */
+  rememberRelease(videoId: string, releaseKey: string): void {
+    this.library.rememberRelease(videoId, releaseKey);
   }
 
   /** The release last played for a movie or an episode (host only; never sent to the phone). */

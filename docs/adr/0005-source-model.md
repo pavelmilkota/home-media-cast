@@ -45,7 +45,9 @@ parameter (⚠️ exact parameter from Introspect).
 The AIOStreams answer for a title is cached in SQLite and served stale-while-revalidate
 (see [architecture.md](../architecture.md)). This does not change the model above: the cache
 holds the provider's raw results on the host only, `StreamOption`s still never carry a URL,
-and a fresh link is still requested right before playback. A cached `cached: true` flag can be
+and a fresh link is still requested right before playback. A seek in a running browser session
+reads through that session's relay link again and asks for a fresh one only when it cannot be
+read (ADR-0009). A cached `cached: true` flag can be
 out of date, so the next / previous episode and queue picks (`findMatching`) always search live.
 Tapping a source from a stale list is allowed; a dead link is reported by the relay preflight
 as before.

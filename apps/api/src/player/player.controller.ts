@@ -14,6 +14,7 @@ import { Observable, map, merge, interval } from 'rxjs';
 import { KodiService } from '../kodi/kodi.service.js';
 import { PlayerStatusService } from './player-status.service.js';
 import { TrackPreferences } from './track-preferences.service.js';
+import { GuestAllowed } from '../auth/guest-allowed.decorator.js';
 
 @Controller()
 export class PlayerController {
@@ -76,6 +77,7 @@ export class PlayerController {
    * Server-sent events. EventSource cannot send an Authorization header, so the PWA reads
    * this with fetch(); the token never goes into the URL, where it would end up in logs.
    */
+  @GuestAllowed()
   @Sse('events')
   events(): Observable<MessageEvent> {
     const events = this.status

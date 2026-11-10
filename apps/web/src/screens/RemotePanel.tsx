@@ -6,6 +6,7 @@ import { api } from '../api/client.js';
 import { episodeLine, formatTime } from '../format.js';
 import { useLive } from '../state/live.js';
 import { CommitSlider } from './CommitSlider.js';
+import { useHandoff } from './use-handoff.js';
 import { PauseIcon, PlayIcon, StopIcon } from './icons.js';
 import { PickSelect } from './PickSelect.js';
 import { sheet } from './ui.js';
@@ -17,6 +18,7 @@ const SKIPS = [-30, -10, 10, 30] as const;
 export function RemotePanel() {
   const { t } = useTranslation();
   const { status } = useLive();
+  const handoff = useHandoff();
   const command = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: unknown }) =>
       api(`/player${path}`, { method: 'POST', body }),
@@ -70,6 +72,16 @@ export function RemotePanel() {
         )}
         {status.media && status.title && (
           <p className="text-sm text-muted wrap-anywhere">{status.title}</p>
+        )}
+        {status.media && (
+          <Button
+            variant="secondary"
+            className="self-start"
+            isDisabled={handoff.busy}
+            onPress={() => void handoff.continueHere()}
+          >
+            {t('handoff.continueHere')}
+          </Button>
         )}
 
         <CommitSlider

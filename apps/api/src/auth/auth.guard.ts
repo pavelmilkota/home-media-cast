@@ -7,6 +7,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { DeviceService, type AuthenticatedDevice } from './device.service.js';
+import { IS_GUEST_ALLOWED } from './guest-allowed.decorator.js';
+import { GuestForbiddenError } from './guest.errors.js';
 import { IS_PUBLIC } from './public.decorator.js';
 
 export type AuthedRequest = Request & { device: AuthenticatedDevice };
@@ -31,6 +33,15 @@ export class AuthGuard implements CanActivate {
     const [scheme, token] = (req.headers.authorization ?? '').split(' ');
     const device = scheme === 'Bearer' && token ? this.devices.authenticate(token) : undefined;
     if (!device) throw new UnauthorizedException('Missing, invalid or revoked device token');
+    if (
+      device.kind === 'guest' &&
+      !this.reflector.getAllAndOverride<boolean>(IS_GUEST_ALLOWED, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    ) {
+      throw new GuestForbiddenError();
+    }
     req.device = device;
     return true;
   }

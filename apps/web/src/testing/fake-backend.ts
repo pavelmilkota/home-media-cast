@@ -10,8 +10,9 @@ export interface Call {
   authorization: string | undefined;
 }
 
-type Reply =
-  { status: number; body?: unknown } | ((call: Call) => { status: number; body?: unknown });
+type Answer = { status: number; body?: unknown };
+/** A fixed answer, or one computed per call (possibly later, to hold a request open). */
+type Reply = Answer | ((call: Call) => Answer | Promise<Answer>);
 
 const enc = new TextEncoder();
 
@@ -26,6 +27,38 @@ export class FakeBackend {
 
   constructor() {
     this.on('GET /streams/cache', { status: 200, body: { entries: 0 } });
+    this.on('GET /logs/kodi', {
+      status: 200,
+      body: {
+        available: true,
+        lines: [
+          '2026-10-22 21:30:00.000 T:1   info <general>: Starting Kodi',
+          '2026-10-22 21:30:01.000 T:1   warning <general>: CFileCache::Process - read stalled',
+          '2026-10-22 21:30:02.000 T:1   error <general>: Playback failed',
+        ],
+        truncated: false,
+      },
+    });
+    this.on('GET /logs/app', {
+      status: 200,
+      body: {
+        entries: [
+          {
+            time: '2026-10-22T21:30:01.000Z',
+            level: 'warn',
+            context: 'RelayService',
+            message: 'Relay request failed: Upstream unreachable',
+          },
+          {
+            time: '2026-10-22T21:30:02.000Z',
+            level: 'error',
+            context: 'KodiService',
+            message: 'Kodi call timed out',
+          },
+        ],
+      },
+    });
+    this.on('GET /playback/history', { status: 200, body: { items: [] } });
     this.on('GET /health', {
       status: 200,
       body: { status: 'ok', kodi: { state: 'connected', version: '13.5.0' }, db: 'ok' },
@@ -108,7 +141,7 @@ export class FakeBackend {
       return new Response(JSON.stringify({ message: `no route ${method} ${path}` }), {
         status: 404,
       });
-    const { status, body } = typeof reply === 'function' ? reply(call) : reply;
+    const { status, body } = typeof reply === 'function' ? await reply(call) : reply;
     return new Response(status === 204 ? null : JSON.stringify(body ?? {}), {
       status,
       headers: { 'content-type': 'application/json' },

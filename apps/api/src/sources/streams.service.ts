@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type {
   AudioProbeResponse,
   AudioTrack,
   StreamOption,
+  VideoFacts,
   StreamsCacheStats,
   StreamsResponse,
 } from '@home-media-cast/shared';
@@ -18,7 +19,7 @@ import {
 import { KodiInvalidUrlError } from '../kodi/kodi.errors.js';
 import type { KodiService } from '../kodi/kodi.service.js';
 import { RelayLinkError, type RelayService } from '../relay/relay.service.js';
-import { UnreadableContainerError, probeAudio, type RangeReader } from './audio-probe.js';
+import { UnreadableContainerError, probeTracks, type RangeReader } from './audio-probe.js';
 import type { AudioProbeStore } from './audio-probe.store.js';
 import { StreamsCacheStore } from './streams-cache.store.js';
 import {
@@ -51,6 +52,15 @@ const audioLanguages = (tracks: AudioTrack[]): string[] => [
 ];
 
 /** The option id is unknown, or older than the time limit. The list must be fetched again. */
+/** The part of a listed option the play history keeps. `releaseKey` stays on the host. */
+export interface OptionDescription {
+  releaseTitle: string;
+  resolution?: string;
+  quality?: string;
+  /** Absent when the source says nothing that identifies the release. */
+  releaseKey?: string;
+}
+
 export class OptionExpiredError extends Error {
   override readonly name = 'OptionExpiredError';
 }
@@ -112,6 +122,7 @@ const refreshMessage = (e: unknown): string =>
  */
 @Injectable()
 export class StreamsService {
+  private readonly logger = new Logger(StreamsService.name);
   private readonly stored = new Map<string, Stored>();
   private readonly ttlMs: number;
   private readonly maxOptions: number;
@@ -213,10 +224,17 @@ export class StreamsService {
       if (key) keys.set(o.id, key);
     }
     if (keys.size === 0) return options;
-    const found = this.audio.getMany([...new Set(keys.values())], this.now());
+    const found = this.audio.getFacts([...new Set(keys.values())], this.now());
     return options.map((o) => {
-      const languages = audioLanguages(found.get(keys.get(o.id) ?? '') ?? []);
-      return languages.length ? { ...o, languages, audioVerified: true } : o;
+      const facts = found.get(keys.get(o.id) ?? '');
+      if (!facts) return o;
+      const languages = audioLanguages(facts.tracks);
+      return {
+        ...o,
+        ...(languages.length ? { languages, audioVerified: true as const } : {}),
+        // The header beats the release name; fields the header left out keep the name's guess.
+        ...(facts.video ? { video: { ...o.video, ...facts.video } } : {}),
+      };
     });
   }
 
@@ -234,11 +252,27 @@ export class StreamsService {
     }
     const { classified } = entry;
     const key = audioKey(classified);
-    if (!this.audio || !key || classified.source.kind !== 'direct_url') return UNAVAILABLE;
-    const known = this.audio.getMany([key], this.now()).get(key);
-    if (known) return this.audioAnswer(known);
-    if (!mayOpenForAudio(classified)) return UNAVAILABLE;
-    if ((this.audioRetryAt.get(key) ?? 0) > this.now()) return UNAVAILABLE;
+    // Says why an answer came back without reading the file; the cross in the list has no reason.
+    const skip = (why: string): AudioProbeResponse => {
+      this.logger.debug(
+        `Audio probe skipped (${classified.service ?? 'unknown service'}, cached=${classified.cached}): ${why}`,
+      );
+      return UNAVAILABLE;
+    };
+    if (!this.audio || !key || classified.source.kind !== 'direct_url') {
+      return skip(
+        `not probe-able (store=${!!this.audio}, keyed=${!!key}, kind=${classified.source.kind})`,
+      );
+    }
+    const known = this.audio.getFacts([key], this.now()).get(key);
+    if (known) {
+      const answer = this.audioAnswer(known.tracks, known.video);
+      if (answer.status !== 'ok')
+        skip(`stored: ${known.tracks.length} tracks, none with a language`);
+      return answer;
+    }
+    if (!mayOpenForAudio(classified)) return skip('not marked cached, so the link is not opened');
+    if ((this.audioRetryAt.get(key) ?? 0) > this.now()) return skip('failed recently');
     let run = this.audioInflight.get(key);
     if (!run) {
       run = this.readAudio(key, classified).finally(() => this.audioInflight.delete(key));
@@ -247,22 +281,26 @@ export class StreamsService {
     return run;
   }
 
-  private audioAnswer(tracks: AudioTrack[]): AudioProbeResponse {
+  private audioAnswer(tracks: AudioTrack[], video?: VideoFacts): AudioProbeResponse {
     const languages = audioLanguages(tracks);
-    return languages.length ? { status: 'ok', tracks, languages } : UNAVAILABLE;
+    return languages.length
+      ? { status: 'ok', tracks, languages, ...(video ? { video } : {}) }
+      : UNAVAILABLE;
   }
 
   private async readAudio(key: string, classified: ClassifiedResult): Promise<AudioProbeResponse> {
     await this.audioSlot();
+    const signal = AbortSignal.timeout(AUDIO_TIMEOUT_MS);
+    const startedAt = this.now();
+    const service = classified.service ?? 'unknown service';
+    let requests = 0;
+    let bytes = 0;
     try {
       // The last check before the first request, whatever path got here.
       if (!mayOpenForAudio(classified) || classified.source.kind !== 'direct_url') {
         return UNAVAILABLE;
       }
       const { url, headers } = classified.source;
-      const signal = AbortSignal.timeout(AUDIO_TIMEOUT_MS);
-      let requests = 0;
-      let bytes = 0;
       const read: RangeReader = async (start, length) => {
         if (++requests > AUDIO_MAX_REQUESTS || bytes + length > AUDIO_MAX_BYTES) {
           throw new UnreadableContainerError('Too much to read');
@@ -276,10 +314,19 @@ export class StreamsService {
         bytes += data.length;
         return data;
       };
-      const tracks = await probeAudio(read);
-      (this.audio as AudioProbeStore).put(key, tracks, this.now());
-      return this.audioAnswer(tracks);
+      const { audio: tracks, video } = await probeTracks(read);
+      this.logger.log(
+        `Audio probe (${service}): ${tracks.length} tracks, ${audioLanguages(tracks).length} languages, ` +
+          `${requests} requests, ${bytes} bytes, ${this.now() - startedAt} ms`,
+      );
+      (this.audio as AudioProbeStore).put(key, tracks, this.now(), video);
+      return this.audioAnswer(tracks, video);
     } catch (e) {
+      // Never the URL: the errors of the relay and of the parser carry none.
+      this.logger.warn(
+        `Audio probe failed (${service}): ${e instanceof Error ? `${e.name}: ${e.message}` : 'unknown error'}, ` +
+          `${requests} requests, ${bytes} bytes, ${this.now() - startedAt} ms${signal.aborted ? ' (time limit)' : ''}`,
+      );
       if (e instanceof UnreadableContainerError) {
         // The file itself cannot be read this way: remember that, so it is not tried again soon.
         (this.audio as AudioProbeStore).put(key, [], this.now());
@@ -414,6 +461,23 @@ export class StreamsService {
   }
 
   /**
+   * What the history keeps about a listed option: display fields and the release key (host only).
+   * Undefined once the option is gone.
+   */
+  describeOption(optionId: string): OptionDescription | undefined {
+    const entry = this.stored.get(optionId);
+    if (!entry || entry.expiresAt < Date.now()) return undefined;
+    const c = entry.classified;
+    const key = releaseKey(c);
+    return {
+      releaseTitle: c.title,
+      ...(c.resolution ? { resolution: c.resolution } : {}),
+      ...(c.quality ? { quality: c.quality } : {}),
+      ...(key ? { releaseKey: key } : {}),
+    };
+  }
+
+  /**
    * The first source (in AIOStreams' own order) of the same release (group, resolution and
    * languages; any release when `bingeGroup` is undefined) that can be played without starting
    * a download; the same torrent is preferred. Returns an option id for `play`, or undefined.
@@ -439,37 +503,56 @@ export class StreamsService {
     return undefined;
   }
 
-  /** Starts the option on the TV. Kodi is only ever given a loopback URL or a YouTube id. */
-  async play(optionId: string, { resume = false }: { resume?: boolean } = {}): Promise<void> {
+  /**
+   * The backend-only classified source behind an option, for a caller that needs the real link
+   * (Kodi through the relay, or a browser session through `ffmpeg`). Never returned to a client.
+   */
+  resolveOption(optionId: string): ClassifiedResult {
     const entry = this.stored.get(optionId);
     if (!entry || entry.expiresAt < Date.now()) {
       this.stored.delete(optionId);
       throw new OptionExpiredError('This source is no longer available; search again');
     }
-    const { source, title } = entry.classified;
-    if (source.kind === 'youtube') return this.kodi.commands.openYouTube(source.videoId);
+    return entry.classified;
+  }
+
+  /**
+   * Registers a source with the relay and checks that its link works. A link that is dead or
+   * expired is asked for again once: the relay follows the provider's redirect chain from the
+   * start, so a second registration resolves a fresh link. Works from the classified source
+   * itself, so it still works after the option id has expired.
+   */
+  async linkFor(
+    classified: ClassifiedResult,
+    { name = classified.title }: { name?: string | undefined } = {},
+  ): Promise<{ id: string; url: string }> {
+    const { source } = classified;
     if (source.kind !== 'direct_url') {
-      throw new NotPlayableError(toOption(optionId, entry.classified).reason ?? 'Cannot be played');
+      throw new NotPlayableError(toOption('', classified).reason ?? 'Cannot be played');
     }
-    // A link that is dead or expired is asked for again once: the relay follows the provider's
-    // redirect chain from the start, so a second registration resolves a fresh link.
-    let linked: { id: string; url: string } | undefined;
-    for (let attempt = 1; !linked; attempt++) {
+    for (let attempt = 1; ; attempt++) {
       const registered = await this.relay.register({
         url: source.url,
         ...(Object.keys(source.headers).length ? { headers: source.headers } : {}),
-        name: title,
+        ...(name ? { name } : {}),
       });
       try {
         await this.relay.preflight(registered.id);
-        linked = registered;
+        return registered;
       } catch (e) {
         this.relay.forget(registered.id);
         if (!(e instanceof RelayLinkError)) throw e;
         if (attempt >= LINK_ATTEMPTS) throw new StreamLinkError(e.reason, e.message);
       }
     }
-    const { url } = linked;
+  }
+
+  /** Starts the option on the TV. Kodi is only ever given a loopback URL or a YouTube id. */
+  async play(optionId: string, { resume = false }: { resume?: boolean } = {}): Promise<void> {
+    const classified = this.resolveOption(optionId);
+    const { source } = classified;
+    if (source.kind === 'youtube') return this.kodi.commands.openYouTube(source.videoId);
+    const { url } = await this.linkFor(classified);
     await this.kodi.commands.open(url, { resume });
   }
 

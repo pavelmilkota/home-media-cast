@@ -30,6 +30,30 @@ How this project uses them:
 If you redistribute a built Docker image of this project, keep this file with it and make the
 source of these two packages available (the links above are enough while they stay online).
 
+## FFmpeg (browser playback)
+
+Browser playback runs the `ffmpeg` and `ffprobe` programs from the Debian package `ffmpeg`
+(`7:5.1.9-0+deb12u1`, pinned in the `Dockerfile`), together with the Intel VAAPI drivers
+`i965-va-driver` and `intel-media-va-driver`. FFmpeg is licensed under the LGPL-2.1+, but Debian's
+build enables GPL components such as `libx264`, which makes the installed binary GPL-2.0+ as a
+whole. ⚠️ unverified: the exact configuration flags of the pinned build have not been read from the
+built image.
+
+How this project uses it:
+
+- It is **unmodified** and installed from Debian's archive in the image; it is started as a separate
+  process and never linked into the API. No FFmpeg code is in this repository.
+- The source of the pinned package is available from Debian (`apt-get source ffmpeg`), and the
+  licence texts are in `/usr/share/doc/ffmpeg/copyright` inside the image.
+- If you redistribute a built Docker image, keep this file with it and offer the source of these
+  packages (the Debian source archive is enough while it stays online). FFmpeg is a trademark of
+  its owner; this project is not affiliated with it.
+
+## hls.js (browser player)
+
+[`hls.js`](https://github.com/video-dev/hls.js) `1.7.4` (Apache-2.0) plays HLS in browsers without
+native support. It is a dependency of the web app, loaded on demand, and unmodified.
+
 ## Other runtime dependencies
 
 All other runtime dependencies of the API and the web app are under permissive licenses (MIT,
@@ -38,7 +62,7 @@ Apache-2.0, ISC, BSD-2-Clause, BSD-3-Clause, and similar). Main ones:
 | Area | Packages |
 |---|---|
 | API | NestJS, Express, `ws`, `zod`, `better-sqlite3`, Drizzle ORM, RxJS, `yt-cast-receiver` (MIT) |
-| Web | React, TanStack Router and Query, HeroUI, React Aria, i18next, Tailwind CSS |
+| Web | React, TanStack Router and Query, HeroUI, React Aria, i18next, Tailwind CSS, `hls.js` (Apache-2.0) |
 
 Checked on 2026-10-20 against the installed `node_modules`: no GPL, AGPL, SSPL or
 noncommercial-restricted license among the dependencies, apart from the LGPL pair above. A few

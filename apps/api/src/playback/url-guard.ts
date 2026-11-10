@@ -50,6 +50,9 @@ export interface UrlGuardOptions {
  * Kodi runs on this machine and would, so the same rules apply. ⚠️ DNS rebinding and HTTP
  * redirects are not closed: Kodi resolves and follows redirects on its own.
  */
+/** Longest link accepted. */
+export const MAX_URL_LENGTH = 16_384;
+
 export class UrlGuard {
   private readonly allowHosts: Set<string>;
   private readonly resolver: Resolver;
@@ -61,7 +64,9 @@ export class UrlGuard {
 
   /** Returns the normalised URL, or throws UrlRejectedError. */
   async check(raw: string): Promise<string> {
-    if (raw.length > 4096) throw new UrlRejectedError('URL is too long');
+    // Provider links can be long (an AIOStreams proxy link for Real-Debrid carries its encoded
+    // config, past 4 KiB); what Kodi and ffmpeg get is the relay's short loopback URL anyway.
+    if (raw.length > MAX_URL_LENGTH) throw new UrlRejectedError('URL is too long');
     let url: URL;
     try {
       url = new URL(raw);

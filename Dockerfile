@@ -22,6 +22,18 @@ ENV NODE_ENV=production \
     PORT=8787 \
     DB_PATH=/data/home-media-cast.sqlite
 WORKDIR /app
+# ffmpeg (and ffprobe) for browser playback, plus the Intel VAAPI drivers (browser-playback-handoff).
+# Pinned to the versions apt resolves in this base image; Debian security updates can retire a
+# pinned version, in which case the build fails and the ARG is bumped deliberately.
+ARG FFMPEG_VERSION=7:5.1.9-0+deb12u1
+ARG I965_VA_DRIVER_VERSION=2.4.1+dfsg1-1
+ARG INTEL_MEDIA_VA_DRIVER_VERSION=23.1.1+dfsg1-1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ffmpeg=${FFMPEG_VERSION} \
+      i965-va-driver=${I965_VA_DRIVER_VERSION} \
+      intel-media-va-driver=${INTEL_MEDIA_VA_DRIVER_VERSION} \
+ && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/

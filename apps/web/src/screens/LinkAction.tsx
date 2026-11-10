@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client.js';
 import { useLive } from '../state/live.js';
+import { useTvAccess } from '../state/use-tv-access.js';
 import { useStartWatch } from './use-start-watch.js';
 
 /** After the API accepts a link, Kodi has this long to start playing it. */
@@ -46,6 +47,7 @@ export function LinkAction({
 }) {
   const { t } = useTranslation();
   const { status } = useLive();
+  const tv = useTvAccess();
   const youtube = parseYouTubeUrl(url) !== undefined;
   const notAVideo = isYouTubePageThatIsNotAVideo(url);
   const { phase, begin, arm } = useStartWatch(status, onStarted, startTimeoutMs);
@@ -68,11 +70,12 @@ export function LinkAction({
         variant="primary"
         size="lg"
         fullWidth
-        isDisabled={busy || notAVideo}
-        onPress={() => play.mutate()}
+        isDisabled={busy || notAVideo || tv.state === 'unavailable'}
+        onPress={tv.guard(() => play.mutate())}
       >
         {busy ? t('link.starting') : t('link.playOnTv')}
       </Button>
+      {tv.state === 'unavailable' && <p className="text-muted">{t('tvGate.kodiDown')}</p>}
       {youtube && <p className="text-muted">{t('link.youtubeVideo')}</p>}
       {notAVideo && (
         <p role="alert" className="text-danger">

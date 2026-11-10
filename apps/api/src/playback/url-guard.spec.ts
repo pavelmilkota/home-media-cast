@@ -54,10 +54,15 @@ describe('UrlGuard', () => {
       'http://93.184.216.34/a.mp4|User-Agent=x',
       'not a url',
       '',
-      `http://93.184.216.34/${'a'.repeat(4100)}`,
+      `http://93.184.216.34/${'a'.repeat(16_400)}`,
     ])('%s', async (url) => {
       await expect(guard().check(url)).rejects.toBeInstanceOf(UrlRejectedError);
     });
+  });
+
+  it('accepts a long provider link (an AIOStreams proxy link runs past 4 KiB)', async () => {
+    const url = `http://93.184.216.34/proxy/${'a'.repeat(6000)}/file.mkv`;
+    await expect(guard().check(url)).resolves.toBe(url);
   });
 
   describe('host names', () => {

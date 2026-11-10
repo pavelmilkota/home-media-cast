@@ -32,6 +32,20 @@ describe('OpenAPI (e2e)', () => {
   it('lists every route', () => {
     expect(Object.keys(doc.paths).sort()).toEqual(
       [
+        '/api/browser-play',
+        '/api/browser-play/config',
+        '/api/browser-play/{id}',
+        '/api/browser-play/external',
+        '/api/browser-play/external/{id}',
+        '/api/browser-play/{id}/audio',
+        '/api/browser-play/{id}/error',
+        '/api/browser-play/{id}/external',
+        '/api/browser-play/{id}/next',
+        '/api/browser-play/{id}/previous',
+        '/api/browser-play/{id}/progress',
+        '/api/browser-play/{id}/seek',
+        '/api/browser-play/{id}/started',
+        '/api/browser-play/{id}/subtitle',
         '/api/catalog/browse',
         '/api/catalog/discover',
         '/api/catalog/search',
@@ -43,8 +57,11 @@ describe('OpenAPI (e2e)', () => {
         '/api/devices',
         '/api/devices/{id}',
         '/api/events',
+        '/api/guest',
         '/api/health',
         '/api/library',
+        '/api/logs/app',
+        '/api/logs/kodi',
         '/api/pairing/complete',
         '/api/pairing/start',
         '/api/queue',
@@ -67,6 +84,11 @@ describe('OpenAPI (e2e)', () => {
         '/api/tv/screensaver',
         '/api/playback',
         '/api/playback/episodes',
+        '/api/playback/handoff/here',
+        '/api/playback/handoff/replay/{id}',
+        '/api/playback/handoff/tv',
+        '/api/playback/history',
+        '/api/playback/history/{id}/play',
         '/api/playback/next',
         '/api/playback/previous',
         '/api/playback/stream',
@@ -94,6 +116,7 @@ describe('OpenAPI (e2e)', () => {
     expect(doc.security).toEqual([{ bearer: [] }]);
     expect(doc.paths['/api/health']!['get']!.security).toEqual([]);
     expect(doc.paths['/api/pairing/start']!['post']!.security).toEqual([]);
+    expect(doc.paths['/api/guest']!['post']!.security).toEqual([]);
     expect(doc.paths['/api/player/stop']!['post']!.security).toBeUndefined();
   });
 });

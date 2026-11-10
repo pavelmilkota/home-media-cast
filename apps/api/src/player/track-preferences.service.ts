@@ -1,44 +1,26 @@
 import type { KodiStream, PlayerStatus } from '@home-media-cast/shared';
-import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service.js';
-import { settings } from '../db/schema.js';
+import { matchStream, TrackChoices, type TrackChoice } from './track-choices.js';
+
+export { matchStream };
 
 type Active = Extract<PlayerStatus, { active: true }>;
 
-/** A chosen track, described by what survives from one file to the next. */
-interface TrackChoice {
-  language: string;
-  name: string;
-}
-
-interface Stored {
-  audio?: TrackChoice;
-  subtitle?: TrackChoice | 'off';
-}
-
-const KEY = 'track-preferences';
 /** Subtitles can be added a moment after the video starts; stop looking after this long. */
 const LOOK_FOR_MS = 30_000;
 
 const choiceOf = (s: KodiStream): TrackChoice => ({ language: s.language, name: s.name });
-
-/** The stream that best matches `want`: same language (else same name), same name first. */
-export function matchStream(streams: KodiStream[], want: TrackChoice): KodiStream | undefined {
-  const sameLanguage = want.language
-    ? streams.filter((s) => s.language === want.language)
-    : streams.filter((s) => !s.language && s.name === want.name);
-  return sameLanguage.find((s) => s.name === want.name) ?? sameLanguage[0];
-}
 
 /**
  * Remembers the audio and subtitle track the household picked last and applies the same choice
  * to the next playback, so a series keeps its language from one episode to the next.
  */
 export class TrackPreferences {
-  private stored: Stored;
+  /** The stored choice, shared with the browser player. */
+  readonly choices: TrackChoices;
 
   constructor(
-    private readonly db: DbService,
+    db: DbService,
     private readonly commands: {
       setAudioStream(index: number): Promise<void>;
       setSubtitle(index: number | 'off'): Promise<void>;
@@ -46,23 +28,22 @@ export class TrackPreferences {
     /** Reads the player; used to learn which track an index in a request stands for. */
     private readonly current: () => Promise<PlayerStatus>,
   ) {
-    const row = db.orm.select().from(settings).where(eq(settings.key, KEY)).get();
-    this.stored = row ? (JSON.parse(row.value) as Stored) : {};
+    this.choices = new TrackChoices(db);
   }
 
   /** Call after the user picked audio stream `index`. Never throws. */
   async rememberAudio(index: number): Promise<void> {
     const s = await this.safeStatus();
     const stream = s?.audioStreams.find((a) => a.index === index);
-    if (stream) this.save({ ...this.stored, audio: choiceOf(stream) });
+    if (stream) this.choices.setAudio(choiceOf(stream));
   }
 
   /** Call after the user picked subtitle `index`, or `'off'`. Never throws. */
   async rememberSubtitle(index: number | 'off'): Promise<void> {
-    if (index === 'off') return this.save({ ...this.stored, subtitle: 'off' });
+    if (index === 'off') return this.choices.setSubtitle('off');
     const s = await this.safeStatus();
     const stream = s?.subtitles.find((a) => a.index === index);
-    if (stream) this.save({ ...this.stored, subtitle: choiceOf(stream) });
+    if (stream) this.choices.setSubtitle(choiceOf(stream));
   }
 
   /**
@@ -71,10 +52,10 @@ export class TrackPreferences {
    */
   forPlayback(): (s: Active) => void {
     const startedAt = Date.now();
-    let audioDone = !this.stored.audio;
-    let subtitleDone = !this.stored.subtitle;
+    let audioDone = !this.choices.audio;
+    let subtitleDone = !this.choices.subtitle;
     return (s) => {
-      const { audio, subtitle } = this.stored;
+      const { audio, subtitle } = this.choices;
       if (!audioDone && audio && s.audioStreams.length > 0) {
         audioDone = true;
         const want = matchStream(s.audioStreams, audio);
@@ -115,15 +96,5 @@ export class TrackPreferences {
     } catch {
       // the player may have moved on; nothing to recover
     }
-  }
-
-  private save(next: Stored): void {
-    this.stored = next;
-    const value = JSON.stringify(next);
-    this.db.orm
-      .insert(settings)
-      .values({ key: KEY, value })
-      .onConflictDoUpdate({ target: settings.key, set: { value } })
-      .run();
   }
 }

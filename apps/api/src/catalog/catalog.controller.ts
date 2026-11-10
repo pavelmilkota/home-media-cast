@@ -27,6 +27,7 @@ import { openYouTube } from '../playback/youtube-start.js';
 import { CatalogService, parseVideoId } from './catalog.service.js';
 import { isImdbId } from './cinemeta.client.js';
 import { LibraryService } from './library.service.js';
+import { GuestAllowed } from '../auth/guest-allowed.decorator.js';
 
 function checkTitle(type: string, id: string): asserts type is 'movie' | 'series' {
   if ((type !== 'movie' && type !== 'series') || !isImdbId(id)) {
@@ -42,6 +43,7 @@ export class CatalogController {
     private readonly kodi: KodiService,
   ) {}
 
+  @GuestAllowed()
   @Get('catalog/search')
   search(@Query('q') q?: string): Promise<SearchResponse> {
     const query = (q ?? '').trim();
@@ -51,11 +53,13 @@ export class CatalogController {
     return this.catalog.search(query);
   }
 
+  @GuestAllowed()
   @Get('catalog/discover')
   discover(): Promise<SearchResponse> {
     return this.catalog.discover();
   }
 
+  @GuestAllowed()
   @Get('catalog/browse')
   browse(@Query() query: Record<string, unknown>): Promise<BrowseResponse> {
     const parsed = BrowseQuerySchema.safeParse(query);
@@ -65,6 +69,7 @@ export class CatalogController {
     return this.catalog.browse(parsed.data);
   }
 
+  @GuestAllowed()
   @Get('catalog/:type/:id')
   detail(@Param('type') type: string, @Param('id') id: string): Promise<TitleDetail> {
     checkTitle(type, id);
@@ -130,8 +135,9 @@ export class CatalogController {
     await this.catalog.setSeasonWatched(id, Number(season), dto.watched);
   }
 
+  @GuestAllowed()
   @Get('library')
-  overview(): LibraryResponse {
-    return this.library.overview();
+  overview(): Promise<LibraryResponse> {
+    return this.catalog.libraryOverview();
   }
 }

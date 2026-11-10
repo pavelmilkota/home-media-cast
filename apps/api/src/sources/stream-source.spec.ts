@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  audioKey,
   classifyResult,
   mayOpenForAudio,
   releaseKey,
   releaseMatch,
   toOption,
+  videoFromName,
 } from './stream-source.js';
 
 const HASH = 'dace3fb370fc9567447fd9b1f19fee787b4d3f17';
@@ -244,5 +246,61 @@ describe('mayOpenForAudio', () => {
     ['external url', { externalUrl: 'https://x.example', infoHash: HASH, cached: true }, false],
   ])('%s -> %s', (_name, raw, expected) => {
     expect(mayOpenForAudio(classifyResult(raw))).toBe(expected);
+  });
+});
+
+describe('audioKey', () => {
+  const file = (over: object = {}) =>
+    classifyResult({
+      url: 'https://cdn.example/a',
+      filename: 'Show.S01E01.mkv',
+      size: 5_000,
+      service: 'realdebrid',
+      cached: true,
+      ...over,
+    });
+
+  it('keys a result without a torrent by its service, name and size', () => {
+    expect(audioKey(file())).toMatch(/^[0-9a-f]{64}$/);
+    expect(mayOpenForAudio(file())).toBe(true);
+  });
+
+  it('is the same for another link to the same file, and differs by file, size and service', () => {
+    const key = audioKey(file());
+    expect(audioKey(file({ url: 'https://cdn.example/other' }))).toBe(key);
+    expect(audioKey(file({ filename: 'Show.S01E02.mkv' }))).not.toBe(key);
+    expect(audioKey(file({ size: 5_001 }))).not.toBe(key);
+    expect(audioKey(file({ service: 'torbox' }))).not.toBe(key);
+  });
+
+  it('has no key when there is no torrent and no size or name', () => {
+    expect(audioKey(file({ size: undefined }))).toBeUndefined();
+    expect(audioKey(file({ filename: undefined }))).toBeUndefined();
+  });
+});
+
+describe('videoFromName', () => {
+  it('reads codec, height, bit depth and HDR from a release name', () => {
+    expect(videoFromName('Movie.2023.2160p.UHD.BluRay.x265.10bit.HDR.DV-GRP')).toEqual({
+      codec: 'hevc',
+      height: 2160,
+      bitDepth: 10,
+      hdr: 'dv-fallback',
+    });
+    expect(videoFromName('Movie.2023.1080p.WEB-DL.H.264-GRP')).toEqual({
+      codec: 'h264',
+      height: 1080,
+      hdr: 'none',
+    });
+  });
+
+  it('leaves out what the name does not say, and is undefined when it says nothing', () => {
+    expect(videoFromName('Some Film')).toBeUndefined();
+    expect(videoFromName('Some Film HDR')).toEqual({ hdr: 'hdr10' });
+    expect(videoFromName('Show S01E02 720p')).toEqual({ height: 720, hdr: 'none' });
+  });
+
+  it('does not mistake words that contain a codec name', () => {
+    expect(videoFromName('Havc.Story')).toBeUndefined();
   });
 });

@@ -42,8 +42,30 @@ export type SeekTarget =
   { positionMs: number } | { percentage: number } | { offsetSeconds: number };
 
 /** Server-sent events on `/api/events`. */
+/**
+ * What plays in a browser, for every paired device. It names the device and the title but carries
+ * no media id, no provider link and no release key; "Continue here" and "Send to TV" are
+ * server-side lookups, so no client needs them. `handoffId` only tells one session from the next.
+ */
+export type BrowserStatus =
+  | { active: false }
+  | {
+      active: true;
+      deviceId: string;
+      deviceName: string;
+      /** Absent for a play without catalog context. */
+      media?: PlayerMedia;
+      positionMs: number;
+      durationMs: number;
+      handoffId: string;
+      /** The position is estimated (an external player), not reported. */
+      approximate?: boolean;
+    };
+
 export type PlayerEvent =
-  { type: 'status'; data: PlayerStatus } | { type: 'kodi'; data: KodiHealth };
+  | { type: 'status'; data: PlayerStatus }
+  | { type: 'kodi'; data: KodiHealth }
+  | { type: 'browser'; data: BrowserStatus };
 
 export const SeekSchema = z.union([
   z.strictObject({ positionMs: z.number().int().min(0) }),

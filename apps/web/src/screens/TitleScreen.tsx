@@ -3,7 +3,11 @@ import type { CatalogType, EpisodeInfo, TitleDetail, TitleState } from '@home-me
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useDeviceKind } from '../api/auth.js';
 import { api } from '../api/client.js';
+import { guestProgress } from '../state/guest-progress.js';
+import { useTvAccess } from '../state/use-tv-access.js';
+import { handoffPick, titleIdOf, usePendingPick, type PendingPick } from '../state/handoff-pick.js';
 import { screen } from './ui.js';
 import { PickSelect } from './PickSelect.js';
 import { SourcePicker } from './SourcePicker.js';
@@ -31,8 +35,27 @@ export function TitleScreen({
   const { t, i18n } = useTranslation();
   const client = useQueryClient();
   const [picking, setPicking] = useState<
-    { videoId: string; heading: string; resumeAt?: number } | undefined
+    | {
+        videoId: string;
+        heading: string;
+        resumeAt?: number;
+        resumeAtMs?: number;
+        handoff?: PendingPick;
+      }
+    | undefined
   >();
+  const pendingPick = usePendingPick();
+  // Like, save, watched and the trailer are the household's and the TV's: a guest goes through pairing.
+  const tv = useTvAccess();
+  const locked = tv.state === 'unavailable';
+  const guest = useDeviceKind() === 'guest';
+  // A guest's resume point lives in its own browser; the server's is the household's.
+  const resume = (videoId: string, server: number | undefined) => {
+    if (!guest) return server ? { resumeAt: server } : {};
+    const p = guestProgress.get(videoId);
+    const fraction = guestProgress.fraction(videoId);
+    return p && fraction ? { resumeAt: fraction, resumeAtMs: p.positionMs } : {};
+  };
   const [season, setSeason] = useState<number | undefined>();
 
   const detail = useQuery({
@@ -78,6 +101,22 @@ export function TitleScreen({
   const hasStills = episodes.some((e) => e.released && e.thumbnail);
   const seasonWatched = airedInSeason.length > 0 && airedInSeason.every((e) => e.watched);
 
+  // A handoff that could not pick its source lands here: open the picker at the same position.
+  useEffect(() => {
+    if (!d || !pendingPick || pendingPick.type !== type || titleIdOf(pendingPick.videoId) !== id) {
+      return;
+    }
+    const episode = d.episodes.find((e) => e.id === pendingPick.videoId);
+    setPicking({
+      videoId: pendingPick.videoId,
+      heading: episode
+        ? `S${episode.season}E${episode.episode} · ${episode.name}`
+        : t('title.sourcesFor', { name: d.name }),
+      handoff: pendingPick,
+    });
+    handoffPick.set(undefined);
+  }, [d, pendingPick, type, id, t]);
+
   const started = () => {
     refresh();
     setPicking(undefined);
@@ -97,6 +136,16 @@ export function TitleScreen({
           videoId={picking.videoId}
           heading={picking.heading}
           {...(picking.resumeAt ? { resumeAt: picking.resumeAt } : {})}
+          {...(picking.resumeAtMs ? { resumeAtMs: picking.resumeAtMs } : {})}
+          {...(picking.handoff
+            ? {
+                handoff: {
+                  direction: picking.handoff.direction,
+                  positionMs: picking.handoff.positionMs,
+                  ...(picking.handoff.reason ? { reason: picking.handoff.reason } : {}),
+                },
+              }
+            : {})}
           onStarted={started}
           onClose={() => setPicking(undefined)}
         />
@@ -152,30 +201,35 @@ export function TitleScreen({
             <Button
               variant={d.state.liked ? 'primary' : 'secondary'}
               aria-pressed={d.state.liked}
-              isDisabled={setState.isPending}
-              onPress={() => setState.mutate({ liked: !d.state.liked })}
+              isDisabled={setState.isPending || locked}
+              onPress={tv.guard(() => setState.mutate({ liked: !d.state.liked }))}
             >
               {d.state.liked ? t('title.liked') : t('title.like')}
             </Button>
             <Button
               variant={d.state.saved ? 'primary' : 'secondary'}
               aria-pressed={d.state.saved}
-              isDisabled={setState.isPending}
-              onPress={() => setState.mutate({ saved: !d.state.saved })}
+              isDisabled={setState.isPending || locked}
+              onPress={tv.guard(() => setState.mutate({ saved: !d.state.saved }))}
             >
               {d.state.saved ? t('title.inMyList') : t('title.addToMyList')}
             </Button>
             {d.trailer && (
               <Button
                 variant="secondary"
-                isDisabled={playTrailer.isPending}
-                onPress={() => playTrailer.mutate()}
+                isDisabled={playTrailer.isPending || locked}
+                onPress={tv.guard(() => playTrailer.mutate())}
               >
                 {t('title.trailer')}
               </Button>
             )}
           </div>
 
+          {locked && (
+            <p className="text-sm text-muted" role="note">
+              {t('tvGate.kodiDown')}
+            </p>
+          )}
           {playTrailer.isSuccess && (
             <p className="text-muted" role="status">
               {t('title.trailerSent')}
@@ -206,8 +260,10 @@ export function TitleScreen({
                     variant="secondary"
                     className="ml-auto"
                     aria-pressed={d.watched}
-                    isDisabled={setWatched.isPending}
-                    onPress={() => setWatched.mutate({ videoId: d.id, watched: !d.watched })}
+                    isDisabled={setWatched.isPending || locked}
+                    onPress={tv.guard(() =>
+                      setWatched.mutate({ videoId: d.id, watched: !d.watched }),
+                    )}
                   >
                     {d.watched ? t('title.markUnwatched') : t('title.markWatched')}
                   </Button>
@@ -218,7 +274,8 @@ export function TitleScreen({
                 type={type}
                 videoId={d.id}
                 heading={t('title.sourcesFor', { name: d.name })}
-                {...(d.progress ? { resumeAt: d.progress } : {})}
+                playerName={d.name}
+                {...resume(d.id, d.progress)}
                 onStarted={started}
               />
             </>
@@ -235,7 +292,7 @@ export function TitleScreen({
                     setPicking({
                       videoId: nextEpisode.id,
                       heading: `S${nextEpisode.season}E${nextEpisode.episode} · ${nextEpisode.name}`,
-                      ...(nextEpisode.progress ? { resumeAt: nextEpisode.progress } : {}),
+                      ...resume(nextEpisode.id, nextEpisode.progress),
                     })
                   }
                 >
@@ -270,10 +327,10 @@ export function TitleScreen({
                 <Button
                   variant="secondary"
                   fullWidth
-                  isDisabled={setSeasonWatched.isPending}
-                  onPress={() =>
-                    setSeasonWatched.mutate({ season: shown!, watched: !seasonWatched })
-                  }
+                  isDisabled={setSeasonWatched.isPending || locked}
+                  onPress={tv.guard(() =>
+                    setSeasonWatched.mutate({ season: shown!, watched: !seasonWatched }),
+                  )}
                 >
                   {seasonWatched ? t('title.markSeasonUnwatched') : t('title.markSeasonWatched')}
                 </Button>
@@ -292,7 +349,7 @@ export function TitleScreen({
                           setPicking({
                             videoId: e.id,
                             heading: `S${e.season}E${e.episode} · ${e.name}`,
-                            ...(e.progress ? { resumeAt: e.progress } : {}),
+                            ...resume(e.id, e.progress),
                           })
                         }
                       >
@@ -349,8 +406,10 @@ export function TitleScreen({
                           episode: episodeLabel(e),
                         })}
                         isSelected={e.watched}
-                        isDisabled={setWatched.isPending}
-                        onChange={(watched) => setWatched.mutate({ videoId: e.id, watched })}
+                        isDisabled={setWatched.isPending || locked}
+                        onChange={tv.guard((watched: boolean) =>
+                          setWatched.mutate({ videoId: e.id, watched }),
+                        )}
                       >
                         {e.watched ? '✓' : '○'}
                       </ToggleButton>

@@ -13,6 +13,7 @@ import {
 import {
   StreamPlaySchema,
   QueueAddSchema,
+  type PlaybackHistoryResponse,
   type QueueAddDto,
   type QueueEntry,
   type QueueResponse,
@@ -26,6 +27,7 @@ import {
 import { isValidTitleId, type TitleType } from '../aiostreams/aiostreams.client.js';
 import { StreamsService } from './streams.service.js';
 import { WatchPlayService } from './watch-play.service.js';
+import { GuestAllowed } from '../auth/guest-allowed.decorator.js';
 
 @Controller()
 export class StreamsController {
@@ -39,6 +41,7 @@ export class StreamsController {
    * at once and updated in the background; `?refresh=1` forces an update. The source played last
    * for this video, if any, is listed first and flagged `lastUsed`.
    */
+  @GuestAllowed()
   @Get('titles/:type/:id/streams')
   list(
     @Param('type') type: string,
@@ -61,6 +64,7 @@ export class StreamsController {
    * Reads the real audio tracks of one listed source from the start of its file, and keeps them
    * so later lists show them at once. 410 when the option id is no longer known.
    */
+  @GuestAllowed()
   @Get('streams/options/:id/audio')
   audio(@Param('id') id: string): Promise<AudioProbeResponse> {
     return this.streams.probeAudio(id);
@@ -106,6 +110,21 @@ export class StreamsController {
   @HttpCode(202)
   async playPrevious(): Promise<{ status: 'accepted' }> {
     await this.watchPlay.playPrevious();
+    return { status: 'accepted' };
+  }
+
+  /** The last plays (up to five, from the last 24 h), newest first. Never carries a link. */
+  @GuestAllowed()
+  @Get('playback/history')
+  history(): PlaybackHistoryResponse {
+    return this.watchPlay.recent();
+  }
+
+  /** Starts a history entry again: the same release, with a fresh link. */
+  @Post('playback/history/:id/play')
+  @HttpCode(202)
+  async replay(@Param('id') id: string): Promise<{ status: 'accepted' }> {
+    await this.watchPlay.replay(id);
     return { status: 'accepted' };
   }
 

@@ -60,7 +60,11 @@ export class PairingService {
     return { expiresInSeconds: CODE_TTL_MS / 1000 };
   }
 
-  complete(code: string, deviceName: string): PairingCompleteResponse {
+  /**
+   * With the bearer token of a guest, that guest is promoted in place (same id, new token), so a
+   * session it has open stays its own. An invalid or non-guest bearer is ignored.
+   */
+  complete(code: string, deviceName: string, bearer?: string): PairingCompleteResponse {
     const pending = this.pending;
     const now = this.now();
     if (!pending || now > pending.expiresAt) {
@@ -74,6 +78,11 @@ export class PairingService {
       throw new UnauthorizedException('Invalid or expired code');
     }
     this.pending = undefined; // single use
+    const guest = bearer ? this.devices.authenticate(bearer, now) : undefined;
+    if (guest?.kind === 'guest') {
+      const promoted = this.devices.promote(guest.id, deviceName, now);
+      if (promoted) return promoted;
+    }
     return this.devices.create(deviceName, now);
   }
 }

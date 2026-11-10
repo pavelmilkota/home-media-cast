@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CinemetaClient, MetadataUnavailableError } from './cinemeta.client.js';
+import { decodeEntities } from './cinemeta.client.js';
 
 /** Answers recorded from the real v3-cinemeta.strem.io on 2026-10-20, trimmed to a few items. */
 const fixture = (name: string): unknown =>
@@ -101,5 +102,14 @@ describe('CinemetaClient gateway errors', () => {
     const four = clientFor(() => json({}, 404));
     await expect(four.client.meta('movie', 'tt1375666')).rejects.toThrow('Unknown title');
     expect(four.paths).toHaveLength(1);
+  });
+});
+
+describe('decodeEntities', () => {
+  it('turns the HTML entities Cinemeta sends into characters, and leaves the rest', () => {
+    expect(decodeEntities('Chris O&apos;Dowd')).toBe("Chris O'Dowd");
+    expect(decodeEntities('Tom &amp; Jerry &#39;&#x41;&quot;')).toBe('Tom & Jerry \'A"');
+    expect(decodeEntities('&lt;b&gt; stays text')).toBe('<b> stays text');
+    expect(decodeEntities('&bogus; &#0; AT&T')).toBe('&bogus; &#0; AT&T');
   });
 });

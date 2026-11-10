@@ -25,7 +25,16 @@ export interface MkvTrack {
   bcp47?: string;
   name?: string;
   channels?: number;
+  /** Video track details (type 1). */
+  height?: number;
+  /** Colour transfer characteristics: 16 = PQ (HDR10), 18 = HLG. */
+  transfer?: number;
+  bits?: number;
+  /** First profile byte of the codec private record (HEVC: 1 = Main, 2 = Main 10). */
+  profile?: number;
+  dolbyVision?: boolean;
 }
+const uintN = (n: number, v: number) => el(n, Buffer.from(v > 255 ? [v >> 8, v & 255] : [v]));
 const mkvTrack = (t: MkvTrack): Buffer =>
   el(
     0xae,
@@ -35,6 +44,25 @@ const mkvTrack = (t: MkvTrack): Buffer =>
     ...(t.bcp47 ? [strEl(0x22b59d, t.bcp47)] : []),
     ...(t.name ? [strEl(0x536e, t.name)] : []),
     ...(t.channels ? [el(0xe1, uintEl(0x9f, t.channels))] : []),
+    ...(t.profile ? [el(0x63a2, Buffer.from([1, t.profile]))] : []),
+    ...(t.dolbyVision ? [el(0x41e4, el(0x41e7, Buffer.from('dvcC')))] : []),
+    ...(t.height || t.transfer || t.bits
+      ? [
+          el(
+            0xe0,
+            ...(t.height ? [uintN(0xba, t.height)] : []),
+            ...(t.transfer || t.bits
+              ? [
+                  el(
+                    0x55b0,
+                    ...(t.transfer ? [uintEl(0x55ba, t.transfer)] : []),
+                    ...(t.bits ? [uintEl(0x55b2, t.bits)] : []),
+                  ),
+                ]
+              : []),
+          ),
+        ]
+      : []),
   );
 
 /** EBML header, a Segment holding SeekHead-ish padding, Tracks, then a Cluster. */
@@ -89,3 +117,33 @@ export function mp4Trak(handler: string, lang: string, format = 'mp4a', channels
 }
 
 export const ftyp = box('ftyp', Buffer.from('isom'), u32(0), Buffer.from('isom'));
+
+/** A video track whose sample entry names `format`, is `height` tall and has `children` boxes. */
+export function mp4VideoTrak(format: string, height: number, ...children: Buffer[]): Buffer {
+  const mdhd = Buffer.alloc(24);
+  const hdlr = Buffer.concat([u32(0), u32(0), Buffer.from('vide', 'latin1'), Buffer.alloc(12)]);
+  const visual = Buffer.alloc(70); // sample entry bytes 16..86: width at 16, height at 18
+  visual.writeUInt16BE(1920, 16);
+  visual.writeUInt16BE(height, 18);
+  const body = Buffer.concat([Buffer.alloc(6), Buffer.from([0, 1]), visual, ...children]);
+  const entry = Buffer.concat([u32(8 + body.length), Buffer.from(format, 'latin1'), body]);
+  const stsd = Buffer.concat([u32(0), u32(1), entry]);
+  return box(
+    'trak',
+    box('tkhd', Buffer.alloc(84)),
+    box(
+      'mdia',
+      box('mdhd', mdhd),
+      box('hdlr', hdlr),
+      box('minf', box('vmhd', Buffer.alloc(8)), box('stbl', box('stsd', stsd))),
+    ),
+  );
+}
+
+/** `colr` box with `nclx` colour information and the given transfer characteristics. */
+export const colr = (transfer: number): Buffer => {
+  const b = Buffer.alloc(11);
+  b.write('nclx', 0, 'latin1');
+  b.writeUInt16BE(transfer, 6);
+  return box('colr', b);
+};

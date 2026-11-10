@@ -20,15 +20,34 @@ services:
       YOUTUBE_CAST_ENABLED: ${YOUTUBE_CAST_ENABLED:-false}
       YOUTUBE_DIAL_PORT: ${YOUTUBE_DIAL_PORT:-3100}
       YOUTUBE_DEVICE_NAME: ${YOUTUBE_DEVICE_NAME:-homeMediaCast}
+      BROWSER_AHEAD_SEGMENTS: ${BROWSER_AHEAD_SEGMENTS:-12}
+      BROWSER_BEHIND_SEGMENTS: ${BROWSER_BEHIND_SEGMENTS:-6}
+      TRANSCODE: ${TRANSCODE:-vaapi}
+      TRANSCODE_HW_DECODE: ${TRANSCODE_HW_DECODE:-false}
+      TRANSCODE_VAAPI_DEVICE: ${TRANSCODE_VAAPI_DEVICE:-/dev/dri/renderD129}
+      GUEST_PLAYBACK_ENABLED: ${GUEST_PLAYBACK_ENABLED:-true}
       KODI_RESTART_TRIGGER: /restart/kodi-restart
+      KODI_LOG_PATH: /kodi-log
     volumes:
       - data:/data
       # Only for the "Restart Kodi" button: an empty file appears here and a host unit reacts to
       # it (docs/kodi-setup.md). The directory must exist and be writable by uid 1000.
       - ${KODI_RESTART_DIR:-./restart}:/restart
+      # Kodi's log directory, read-only, for the Logs page. The directory (not the file) is mounted
+      # so Kodi's rotation to kodi.old.log does not leave a stale file. It must be readable by uid
+      # 1000 (docs/kodi-setup.md).
+      - ${KODI_LOG_DIR:-./kodi-log}:/kodi-log:ro
+    # The Intel GPU's render node, for VAAPI transcoding (docs/environment.md). The host has two
+    # render nodes; pick the one whose driver is i915 (see `ls -l /sys/class/drm/renderD*/device/driver`).
+    devices:
+      - ${TRANSCODE_VAAPI_DEVICE:-/dev/dri/renderD129}:${TRANSCODE_VAAPI_DEVICE:-/dev/dri/renderD129}
+    # Numeric GID of the host's `render` group (`getent group render`), so uid 1000 may open it.
+    group_add:
+      - ${RENDER_GID:?set RENDER_GID in .env (getent group render)}
     read_only: true
+    # HLS segments live here, so this is RAM: size it for the ahead/behind budgets.
     tmpfs:
-      - /tmp
+      - /tmp:size=${TRANSCODE_TMPFS_SIZE:-1g}
     cap_drop:
       - ALL
     security_opt:

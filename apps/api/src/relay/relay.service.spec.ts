@@ -31,6 +31,7 @@ describe('RelayService', () => {
   let streamClosed: boolean;
   let warnings: string[];
   let generation: number;
+  let flakyCalls: number;
 
   const guard = new UrlGuard({ allowHosts: ['127.0.0.1'] });
   const register = (path: string, headers?: Record<string, string>) =>
@@ -66,6 +67,7 @@ describe('RelayService', () => {
     streamClosed = false;
     warnings = [];
     generation = 0;
+    flakyCalls = 0;
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(
       (m: unknown) => void warnings.push(String(m)),
     );
@@ -109,6 +111,25 @@ describe('RelayService', () => {
           .writeHead(302, { location: `http://localhost:${providerPort}/video?token=${SECRET}` })
           .end();
       if (url.pathname === '/loop') return void res.writeHead(302, { location: '/loop' }).end();
+      if (url.pathname === '/drops' || url.pathname === '/stalls' || url.pathname === '/flaky') {
+        // The first answer sends half of what was asked and then breaks (or goes quiet); a later
+        // Range request gets the rest. `/flaky` breaks every time.
+        flakyCalls++;
+        const m = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
+        const start = m ? Number(m[1]) : 0;
+        const end = m && m[2] ? Math.min(Number(m[2]), BODY.length - 1) : BODY.length - 1;
+        const broken = url.pathname === '/flaky' || flakyCalls === 1;
+        const cut = broken ? start + Math.floor((end - start + 1) / 2) : end + 1;
+        res.writeHead(m ? 206 : 200, {
+          'content-type': 'video/mp4',
+          'content-length': String(end - start + 1),
+          ...(m ? { 'content-range': `bytes ${start}-${end}/${BODY.length}` } : {}),
+        });
+        res.write(BODY.subarray(start, cut));
+        if (!broken) return void res.end();
+        if (url.pathname === '/stalls') return; // goes quiet, the socket stays open
+        return void setTimeout(() => res.destroy(), 20);
+      }
       if (url.pathname === '/dead') return void res.writeHead(404).end();
       if (url.pathname === '/boom') return void res.writeHead(500).end();
       if (url.pathname === '/hang') return; // never answers
@@ -133,6 +154,7 @@ describe('RelayService', () => {
       check: (url) => guard.check(url),
       baseUrl: 'http://127.0.0.1:0',
       upstreamTimeoutMs: 1500,
+      stallMs: 300,
     });
     relayServer = createServer((req, res) => {
       void relay.handle(req, res, (req.url ?? '').split('/').pop() ?? '');
@@ -254,6 +276,44 @@ describe('RelayService', () => {
       req.end();
     });
     expect(outcome).toBe('alive');
+  });
+
+  describe('a provider connection that breaks mid-stream', () => {
+    it('is continued from the next byte, and the player never notices', async () => {
+      const { id } = await register('/drops');
+      const res = await get(id);
+      expect(res.status).toBe(200);
+      expect(res.body.equals(BODY)).toBe(true);
+      expect(providerLog.filter((l) => l.url === '/drops').map((l) => l.range)).toEqual([
+        undefined,
+        `bytes=${Math.floor(BODY.length / 2)}-${BODY.length - 1}`,
+      ]);
+    });
+
+    it('is continued after it goes quiet too', async () => {
+      const { id } = await register('/stalls');
+      const res = await get(id, { Range: 'bytes=1000-4999' });
+      expect(res.status).toBe(206);
+      expect(res.body.equals(BODY.subarray(1000, 5000))).toBe(true);
+      expect(warnings.some((w) => w.includes('stalled'))).toBe(true);
+    });
+
+    it('cuts the player off after a few tries, so it asks again by itself', async () => {
+      const { id } = await register('/flaky');
+      const complete = await new Promise<boolean>((resolve) => {
+        const req = request(
+          { host: '127.0.0.1', port: relayPort, path: `/api/relay/${id}` },
+          (res) => {
+            res.on('data', () => undefined);
+            res.on('close', () => resolve(res.complete));
+          },
+        );
+        req.on('error', () => resolve(false));
+        req.end();
+      });
+      expect(complete).toBe(false);
+      expect(flakyCalls).toBe(4); // the first answer and three resumes
+    });
   });
 
   describe('preflight', () => {
@@ -419,5 +479,101 @@ describe('RelayService', () => {
     const { id, url } = await register(`/video?token=${SECRET}`);
     expect(url).toBe(`http://127.0.0.1:0/api/relay/${id}`);
     expect(id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+
+  describe('serve (the LAN media route)', () => {
+    let lan: Server;
+    let lanPort: number;
+    let outcomes: string[];
+    beforeEach(async () => {
+      outcomes = [];
+      lan = createServer((req, res) => {
+        const id = (req.url ?? '').split('/').pop() ?? '';
+        void relay.serve(req, res, id).then((o) => {
+          outcomes.push(o);
+          if (o === 'gone') res.writeHead(404).end();
+          if (o === 'dead') res.writeHead(502).end();
+        });
+      });
+      lanPort = await listen(lan);
+    });
+    afterEach(async () => {
+      await close(lan);
+    });
+    const ask = (id: string, headers: Record<string, string> = {}, method = 'GET') =>
+      new Promise<{ status: number; headers: IncomingMessage['headers']; body: Buffer }>(
+        (resolve, reject) => {
+          const req = request(
+            { host: '127.0.0.1', port: lanPort, path: `/${id}`, method, headers },
+            (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (c: Buffer) => chunks.push(c));
+              res.on('end', () =>
+                resolve({
+                  status: res.statusCode ?? 0,
+                  headers: res.headers,
+                  body: Buffer.concat(chunks),
+                }),
+              );
+            },
+          );
+          req.on('error', reject);
+          req.end();
+        },
+      );
+
+    it('streams the file and forwards Range, without asking who the client is', async () => {
+      const { id } = await register(`/video?token=${SECRET}`);
+      const whole = await ask(id);
+      expect(whole.status).toBe(200);
+      expect(whole.body.equals(BODY)).toBe(true);
+      const part = await ask(id, { range: 'bytes=100-199' });
+      expect(part.status).toBe(206);
+      expect(part.headers['content-range']).toBe(`bytes 100-199/${BODY.length}`);
+      expect(part.body.equals(BODY.subarray(100, 200))).toBe(true);
+      expect(providerLog.some((l) => l.range === 'bytes=100-199')).toBe(true);
+    });
+
+    it('answers HEAD from the size the provider gave', async () => {
+      const { id } = await register(`/video?token=${SECRET}`);
+      const head = await ask(id, {}, 'HEAD');
+      expect(head.status).toBe(200);
+      expect(head.headers['content-length']).toBe(String(BODY.length));
+      expect(head.headers['accept-ranges']).toBe('bytes');
+      expect(head.body).toHaveLength(0);
+    });
+
+    it('reports an unknown id as gone and a refused link as dead, writing nothing itself', async () => {
+      expect((await ask('nope')).status).toBe(404);
+      const { id } = await register('/dead');
+      expect((await ask(id)).status).toBe(502);
+      expect(outcomes).toEqual(['gone', 'dead']);
+    });
+
+    it('knows the size once the link was checked', async () => {
+      const { id } = await register(`/video?token=${SECRET}`);
+      expect(relay.sizeOf(id)).toBeUndefined();
+      await relay.preflight(id);
+      expect(relay.sizeOf(id)).toBe(BODY.length);
+    });
+
+    it('leaves `handle` as strict as before: a LAN client still gets 404 there', async () => {
+      const { id } = await register(`/video?token=${SECRET}`);
+      const out = { status: 0 };
+      await relay.handle(
+        {
+          socket: { remoteAddress: '192.168.1.50' },
+          method: 'GET',
+          headers: { host: '127.0.0.1:8787' },
+        } as unknown as IncomingMessage,
+        {
+          writeHead: (st: number) => void (out.status = st),
+          end: () => undefined,
+          on: () => undefined,
+        } as never,
+        id,
+      );
+      expect(out.status).toBe(404);
+    });
   });
 });

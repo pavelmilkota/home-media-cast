@@ -13,10 +13,11 @@ import {
 import { App } from './App.js';
 import { HomeScreen } from './screens/HomeScreen.js';
 import { LibraryScreen } from './screens/LibraryScreen.js';
+import { LogsScreen, type LogTab } from './screens/LogsScreen.js';
 import { SearchScreen } from './screens/SearchScreen.js';
 import { TitleScreen } from './screens/TitleScreen.js';
 
-export type Sheet = 'remote' | 'settings';
+export type Sheet = 'remote' | 'settings' | 'player';
 
 declare module '@tanstack/react-router' {
   interface Register {
@@ -33,12 +34,18 @@ declare module '@tanstack/react-router' {
 const isCatalogType = (t: string): t is CatalogType => t === 'movie' || t === 'series';
 
 export function validateRootSearch(search: Record<string, unknown>): { sheet?: Sheet } {
-  return search.sheet === 'remote' || search.sheet === 'settings' ? { sheet: search.sheet } : {};
+  return search.sheet === 'remote' || search.sheet === 'settings' || search.sheet === 'player'
+    ? { sheet: search.sheet }
+    : {};
 }
 
 export function validateSearchQuery(search: Record<string, unknown>): { q?: string } {
   const q = typeof search.q === 'string' ? search.q.trim() : '';
   return q.length >= 2 ? { q } : {};
+}
+
+export function validateLogsSearch(search: Record<string, unknown>): { tab?: LogTab } {
+  return search.tab === 'kodi' || search.tab === 'app' ? { tab: search.tab } : {};
 }
 
 const rootRoute = createRootRoute({ component: App, validateSearch: validateRootSearch });
@@ -94,6 +101,22 @@ function TitleRoute() {
   );
 }
 
+function LogsRoute() {
+  const { tab = 'kodi' } = logsRoute.useSearch();
+  const router = useRouter();
+  const navigate = useNavigate();
+  const canGoBack = useCanGoBack();
+  const back = () =>
+    canGoBack ? router.history.back() : void navigate({ to: '/', replace: true });
+  return (
+    <LogsScreen
+      tab={tab}
+      onTab={(next) => void navigate({ to: '/logs', search: { tab: next }, replace: true })}
+      onBack={back}
+    />
+  );
+}
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -120,6 +143,12 @@ const titleRoute = createRoute({
   },
   component: TitleRoute,
 });
+const logsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'logs',
+  validateSearch: validateLogsSearch,
+  component: LogsRoute,
+});
 // Unknown paths land on Home.
 const unknownRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -134,6 +163,7 @@ const routeTree = rootRoute.addChildren([
   libraryRoute,
   searchRoute,
   titleRoute,
+  logsRoute,
   unknownRoute,
 ]);
 

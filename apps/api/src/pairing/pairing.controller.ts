@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   PairingCompleteSchema,
   type PairingCompleteDto,
@@ -22,7 +23,10 @@ export class PairingController {
   @HttpCode(200)
   complete(
     @Body({ schema: PairingCompleteSchema }) dto: PairingCompleteDto,
+    @Req() req: Request,
   ): PairingCompleteResponse {
-    return this.pairing.complete(dto.code, dto.deviceName);
+    // The route is public, so the optional guest bearer is read by hand.
+    const [scheme, token] = (req.headers.authorization ?? '').split(' ');
+    return this.pairing.complete(dto.code, dto.deviceName, scheme === 'Bearer' ? token : undefined);
   }
 }
